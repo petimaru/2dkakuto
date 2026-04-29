@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Pixel Pro Wrestling</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="phone-frame" aria-label="Pixel Pro Wrestling">
+      <canvas id="game" width="720" height="1280" aria-label="2D wrestling game"></canvas>
+
+      <div class="touch-layer" aria-hidden="true">
+        <div id="moveZone" class="touch-zone move-zone">
+          <span>MOVE</span>
+        </div>
+        <div id="actionZone" class="touch-zone action-zone">
+          <span>ACTION</span>
+        </div>
+      </div>
+
+      <section id="menu" class="menu-panel">
+        <h1>PIXEL PRO WRESTLING</h1>
+        <p>ROOEEBEE vs PETIMAN</p>
+        <div class="difficulty-row" role="group" aria-label="Difficulty">
+          <button class="difficulty-button is-active" data-difficulty="easy">Easy</button>
+          <button class="difficulty-button" data-difficulty="normal">Normal</button>
+          <button class="difficulty-button" data-difficulty="hard">Hard</button>
+        </div>
+        <button id="startButton" class="primary-button">START</button>
+      </section>
+
+      <section id="result" class="result-panel" hidden>
+        <h2 id="resultTitle">WIN</h2>
+        <p id="resultReason"></p>
+        <button id="restartButton" class="primary-button">RESTART</button>
+      </section>
+    </main>
+
+    <script src="./src/game.js"></script>
+  </body>
+</html>
