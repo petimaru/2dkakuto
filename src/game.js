@@ -53,6 +53,7 @@
     last: performance.now(),
     aiThink: 0,
     grab: null,
+    grabContest: null,
     submission: null,
     throwAnim: null,
     damageTexts: [],
@@ -154,6 +155,7 @@
     game.shake = 0;
     game.aiThink = 0;
     game.grab = null;
+    game.grabContest = null;
     game.submission = null;
     game.throwAnim = null;
     game.damageTexts = [];
@@ -174,6 +176,7 @@
   function startKoSequence(winner, loser, reason, options = {}) {
     if (game.state === "ko" || game.state === "result") return;
     clearGrab();
+    game.grabContest = null;
     game.submission = null;
     game.throwAnim = null;
     game.state = "ko";
@@ -322,11 +325,12 @@
     if (p1.dash > 0 && tap) return performLariat(p1, p2);
 
     if (game.grab && isInGrab(p1)) {
-      if (tap) return ropeThrow(p1, p2);
-      if (absY > absX && dy < -42) return performThrow(p1, p2, "suplex");
-      if (absY > absX && dy > 42) return startSubmission(p1, p2);
-      if (toward) return performThrow(p1, p2, "headbutt");
-      if (away) return performThrow(p1, p2, "backdrop");
+      const contestAction = classifyGrabAction(tap, absX, absY, dy, toward, away);
+      if (game.grabContest) {
+        if (contestAction) countGrabContestInput(p1, contestAction);
+        return;
+      }
+      if (contestAction) return executeGrabAction(p1, p2, contestAction);
       return;
     }
 
@@ -373,7 +377,8 @@
 
     if (game.grab) {
       maintainGrab(dt);
-      updateAiGrab(dt);
+      updateGrabContest(dt);
+      if (!game.grabContest) updateAiGrab(dt);
     } else {
       updateMovement(p1, input.moveX, input.moveY, dt);
       updateAi(dt);
@@ -549,7 +554,7 @@
   }
 
   function updateAiGrab(dt) {
-    if (game.throwAnim || !game.grab || !isInGrab(p2) || p2.tired > 0) return;
+    if (game.throwAnim || game.grabContest || !game.grab || !isInGrab(p2) || p2.tired > 0) return;
     game.aiThink -= dt;
     if (game.aiThink > 0) return;
     game.aiThink = 0.55 + Math.random() * 0.3;
@@ -559,6 +564,90 @@
       else if (roll < 0.72) performThrow(p2, p1, "backdrop");
       else if (roll < 0.88) performThrow(p2, p1, "suplex");
       else startSubmission(p2, p1);
+  }
+
+  function updateGrabContest(dt) {
+    const contest = game.grabContest;
+    if (!contest || !game.grab) return;
+
+    if (contest.intro > 0) {
+      contest.intro = Math.max(0, contest.intro - dt);
+      game.message = "CLASH!";
+      game.messageTimer = 0.2;
+      return;
+    }
+
+    if (contest.outro > 0) {
+      contest.outro = Math.max(0, contest.outro - dt);
+      game.message = contest.result ? `${contest.result.fighter.name} ${grabActionLabel(contest.result.action)}` : "BREAK";
+      game.messageTimer = 0.2;
+      if (contest.outro <= 0) finishGrabContest();
+      return;
+    }
+
+    contest.timer -= dt;
+    countCpuGrabContestInput(dt);
+    game.message = `CLASH ${Math.ceil(contest.timer * 10) / 10}`;
+    game.messageTimer = 0.2;
+
+    if (contest.timer <= 0) resolveGrabContest();
+  }
+
+  function countCpuGrabContestInput(dt) {
+    const contest = game.grabContest;
+    if (!contest || !isInGrab(p2) || p2.tired > 0) return;
+    const settings = difficultySettings[game.difficulty];
+    contest.cpuPulse += dt * (settings.mash * 0.95 + 2);
+    while (contest.cpuPulse >= 1) {
+      contest.cpuPulse -= 1;
+      countGrabContestInput(p2, chooseCpuGrabAction());
+    }
+  }
+
+  function chooseCpuGrabAction() {
+    const roll = Math.random();
+    if (roll < 0.22) return "tap";
+    if (roll < 0.43) return "toward";
+    if (roll < 0.64) return "away";
+    if (roll < 0.83) return "up";
+    return "down";
+  }
+
+  function resolveGrabContest() {
+    const contest = game.grabContest;
+    if (!contest || !game.grab) return;
+    let best = { fighter: null, action: "", count: 0 };
+    [contest.attacker, contest.defender].forEach((fighter) => {
+      const counts = contest.counts.get(fighter);
+      Object.entries(counts).forEach(([action, count]) => {
+        if (count > best.count) best = { fighter, action, count };
+      });
+    });
+
+    contest.result = best.fighter && best.count > 0 ? best : null;
+    contest.outro = 0.2;
+    if (!best.fighter || best.count <= 0) {
+      game.message = "BREAK";
+      game.messageTimer = 0.25;
+      return;
+    }
+
+    game.message = `${best.fighter.name} ${grabActionLabel(best.action)}`;
+    game.messageTimer = 0.25;
+  }
+
+  function finishGrabContest() {
+    const contest = game.grabContest;
+    if (!contest || !game.grab) return;
+    const result = contest.result;
+    game.grabContest = null;
+    if (!result) {
+      clearGrab();
+      game.message = "BREAK";
+      game.messageTimer = 0.7;
+      return;
+    }
+    executeGrabAction(result.fighter, opponentOf(result.fighter), result.action);
   }
 
   function tryStrike(attacker, defender, moveName) {
@@ -600,13 +689,12 @@
     if (!canAct(attacker)) return;
     if (!spendStamina(attacker, 9)) return;
     attacker.attack = 0.15;
-    if (distance(attacker, defender) <= 82 && sameLane(attacker, defender) && defender.guard <= 0 && defender.dash <= 0) {
+    if (distance(attacker, defender) <= 98 && sameLane(attacker, defender) && defender.guard <= 0 && defender.dash <= 0) {
       game.grab = { a: attacker, b: defender, timer: 2.6 };
       attacker.grabbed = true;
       defender.grabbed = true;
       attacker.attackName = "GRAB";
-      game.message = "GRAB";
-      game.messageTimer = 0.8;
+      startGrabContest(attacker, defender);
     } else {
       game.message = "MISS GRAB";
       game.messageTimer = 0.5;
@@ -619,6 +707,65 @@
     f.attackName = "GUARD";
     game.message = `${f.name} GUARD`;
     game.messageTimer = 0.5;
+  }
+
+  function startGrabContest(attacker, defender) {
+    game.grabContest = {
+      intro: 0.2,
+      timer: 1,
+      outro: 0,
+      result: null,
+      attacker,
+      defender,
+      cpuPulse: 0,
+      counts: new Map([
+        [attacker, makeGrabContestCounts()],
+        [defender, makeGrabContestCounts()],
+      ]),
+    };
+    game.message = "CLASH!";
+    game.messageTimer = 1.25;
+  }
+
+  function makeGrabContestCounts() {
+    return { tap: 0, up: 0, down: 0, toward: 0, away: 0 };
+  }
+
+  function classifyGrabAction(tap, absX, absY, dy, toward, away) {
+    if (tap) return "tap";
+    if (absY > absX && dy < -42) return "up";
+    if (absY > absX && dy > 42) return "down";
+    if (toward) return "toward";
+    if (away) return "away";
+    return "";
+  }
+
+  function countGrabContestInput(f, action) {
+    const contest = game.grabContest;
+    if (!contest || contest.intro > 0 || contest.outro > 0 || contest.timer <= 0) return;
+    const counts = contest.counts.get(f);
+    if (!counts || !counts[action]) counts[action] = 0;
+    counts[action] += 1;
+    game.message = `${f.name} ${grabActionLabel(action)} x${counts[action]}`;
+    game.messageTimer = 0.35;
+  }
+
+  function grabActionLabel(action) {
+    return {
+      tap: "THROW",
+      up: "BRAIN",
+      down: "FIGURE",
+      toward: "HEAD",
+      away: "BACK",
+    }[action] || "";
+  }
+
+  function executeGrabAction(attacker, defender, action) {
+    if (action === "tap") return ropeThrow(attacker, defender);
+    if (action === "up") return performThrow(attacker, defender, "suplex");
+    if (action === "down") return startSubmission(attacker, defender);
+    if (action === "toward") return performThrow(attacker, defender, "headbutt");
+    if (action === "away") return performThrow(attacker, defender, "backdrop");
   }
 
   function performThrow(attacker, defender, moveName) {
@@ -848,6 +995,7 @@
       game.grab.b.grabbed = false;
     }
     game.grab = null;
+    game.grabContest = null;
   }
 
   function checkRopes(f) {
@@ -976,8 +1124,11 @@
     if (game.shake > 0) {
       ctx.translate((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
     }
+    if (game.grabContest) {
+      ctx.save();
+      applyGrabContestCamera();
+    }
     drawArena();
-    drawHud();
     [p1, p2].sort((a, b) => a.y - b.y).forEach((fighter) => {
       if (game.submission && (fighter === game.submission.attacker || fighter === game.submission.defender)) return;
       if (game.throwAnim && (fighter === game.throwAnim.attacker || fighter === game.throwAnim.defender)) return;
@@ -986,9 +1137,24 @@
     drawSubmissionHold();
     drawThrowAnimation();
     drawEffects();
+    drawGrabContestEffects();
+    if (game.grabContest) ctx.restore();
+    drawHud();
     drawDamageTexts();
     drawDebugHints();
     ctx.restore();
+  }
+
+  function applyGrabContestCamera() {
+    const contest = game.grabContest;
+    const centerX = (contest.attacker.x + contest.defender.x) / 2;
+    const centerY = Math.min(lane.bottom - 100, Math.max(lane.top + 80, (contest.attacker.y + contest.defender.y) / 2 - 96));
+    let zoomProgress = 1 - clamp(contest.intro / 0.2, 0, 1);
+    if (contest.outro > 0) zoomProgress = clamp(contest.outro / 0.2, 0, 1);
+    const scale = 1 + 0.16 * zoomProgress;
+    ctx.translate(centerX, centerY);
+    ctx.scale(scale, scale);
+    ctx.translate(-centerX, -centerY);
   }
 
   function drawArena() {
@@ -1114,11 +1280,52 @@
     ctx.fillRect(x, y, 104, 104);
     ctx.fillStyle = "#111827";
     ctx.fillRect(x + 5, y + 5, 94, 94);
+
+    if (drawPortraitSprite(x + 5, y + 5, 94, f)) return;
+
     ctx.save();
     ctx.translate(x + 52, y + 62);
     ctx.scale(left ? 0.55 : 0.58, 0.55);
     drawFighterBody(f, true);
     ctx.restore();
+  }
+
+  function drawPortraitSprite(x, y, size, f) {
+    const set = f.player ? spriteImages.rooeeebee : spriteImages.petiman;
+    const mood = f.hp <= 0 ? "ko" : f.hp <= 50 ? "tired" : "idle";
+    const img = set[mood];
+    if (!img || !img.complete || img.naturalWidth === 0) return false;
+
+    const crop = portraitCrop(f, mood, img);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, y, size, size);
+    ctx.clip();
+    ctx.drawImage(img, crop.x, crop.y, crop.w, crop.h, x, y, size, size);
+    ctx.restore();
+    return true;
+  }
+
+  function portraitCrop(f, mood, img) {
+    const fallback = { x: img.naturalWidth * 0.25, y: 0, w: img.naturalWidth * 0.5, h: img.naturalWidth * 0.5 };
+    const crops = f.player
+      ? {
+          idle: [230, 0, 420, 420],
+          tired: [300, 0, 390, 390],
+          ko: [18, 34, 500, 500],
+        }
+      : {
+          idle: [145, 18, 560, 560],
+          tired: [210, 16, 520, 520],
+          ko: [558, 0, 430, 430],
+        };
+    const [x, y, w, h] = crops[mood] || [fallback.x, fallback.y, fallback.w, fallback.h];
+    return {
+      x: clamp(x, 0, img.naturalWidth - 1),
+      y: clamp(y, 0, img.naturalHeight - 1),
+      w: Math.min(w, img.naturalWidth - x),
+      h: Math.min(h, img.naturalHeight - y),
+    };
   }
 
   function drawStatus(x, y, f, left) {
@@ -1379,13 +1586,6 @@
   }
 
   function drawEffects() {
-    if (game.grab) {
-      const g = game.grab;
-      ctx.strokeStyle = "#ffe76b";
-      ctx.lineWidth = 5;
-      const top = Math.min(g.a.y - g.a.height, g.b.y - g.b.height) - 12;
-      ctx.strokeRect(Math.min(g.a.x, g.b.x) - 42, top, Math.abs(g.a.x - g.b.x) + 84, 132);
-    }
     if (game.submission) {
       const s = game.submission;
       const pulse = 0.22 + Math.sin(performance.now() / 90) * 0.08;
@@ -1393,6 +1593,58 @@
       ctx.lineWidth = 5;
       ctx.strokeRect((s.attacker.x + s.defender.x) / 2 - 182, Math.max(s.attacker.y, s.defender.y) - 154, 364, 122);
     }
+  }
+
+  function drawGrabContestEffects() {
+    const contest = game.grabContest;
+    if (!contest || !game.grab) return;
+    const centerX = (contest.attacker.x + contest.defender.x) / 2;
+    const top = Math.min(contest.attacker.y - contest.attacker.height, contest.defender.y - contest.defender.height) - 18;
+    const bottom = Math.max(contest.attacker.y, contest.defender.y) + 18;
+    const width = Math.abs(contest.attacker.x - contest.defender.x) + 178;
+    const left = centerX - width / 2;
+    const time = performance.now() / 100;
+
+    ctx.save();
+    ctx.lineWidth = 5;
+    for (let i = 0; i < 18; i += 1) {
+      const p = (i / 18 + time * 0.055) % 1;
+      const edge = Math.floor(p * 4);
+      const local = (p * 4) % 1;
+      let x = left;
+      let y = top;
+      if (edge === 0) x = left + width * local;
+      else if (edge === 1) {
+        x = left + width;
+        y = top + (bottom - top) * local;
+      } else if (edge === 2) {
+        x = left + width * (1 - local);
+        y = bottom;
+      } else {
+        y = top + (bottom - top) * (1 - local);
+      }
+      ctx.strokeStyle = i % 2 === 0 ? "#fff66b" : "#59d9ff";
+      ctx.beginPath();
+      ctx.moveTo(x - 10, y);
+      ctx.lineTo(x + 10, y);
+      ctx.moveTo(x, y - 10);
+      ctx.lineTo(x, y + 10);
+      ctx.stroke();
+    }
+
+    const p1Total = grabContestTotal(p1);
+    const p2Total = grabContestTotal(p2);
+    pixelText(String(p1Total), centerX - 116, top - 26, 3.2, "#6ecfff");
+    pixelText(String(p2Total), centerX + 86, top - 26, 3.2, "#ff5656");
+    ctx.restore();
+  }
+
+  function grabContestTotal(f) {
+    const contest = game.grabContest;
+    if (!contest) return 0;
+    const counts = contest.counts.get(f);
+    if (!counts) return 0;
+    return Object.values(counts).reduce((sum, count) => sum + count, 0);
   }
 
   function drawDamageTexts() {
