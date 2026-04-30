@@ -23,12 +23,31 @@
 
       <section id="menu" class="menu-panel">
         <h1>PIXEL PRO WRESTLING</h1>
-        <p id="menuMatchup">SELECT YOUR WRESTLER</p>
-        <div id="characterStep">
+        <p id="menuMatchup">SELECT MODE</p>
+        <div id="modeStep">
+          <div class="mode-row" role="group" aria-label="Mode">
+            <button class="mode-button" data-mode="cpu">VS CPU</button>
+            <button class="mode-button" data-mode="host">HOST</button>
+            <button class="mode-button" data-mode="join">JOIN</button>
+          </div>
+        </div>
+        <div id="characterStep" hidden>
           <div class="character-row" role="group" aria-label="Character">
             <button class="character-button" data-character="rooeeebee">ROOEEBEE</button>
             <button class="character-button" data-character="petiman">PETIMAN</button>
           </div>
+        </div>
+        <div id="connectionStep" hidden>
+          <div id="hostConnection" hidden>
+            <p class="connection-label">ROOM CODE</p>
+            <div id="roomCode" class="room-code">00000000</div>
+            <button id="hostContinueButton" class="primary-button">CONTINUE</button>
+          </div>
+          <div id="joinConnection" hidden>
+            <input id="roomCodeInput" class="room-code-input" inputmode="numeric" maxlength="8" placeholder="00000000" aria-label="Room code">
+            <button id="joinContinueButton" class="primary-button">CONTINUE</button>
+          </div>
+          <button id="connectionBackButton" class="secondary-button">BACK</button>
         </div>
         <div id="difficultyStep" hidden>
           <div class="difficulty-row" role="group" aria-label="Difficulty">

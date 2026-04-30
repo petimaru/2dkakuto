@@ -5,15 +5,25 @@
   const ctx = canvas.getContext("2d");
   const menu = document.getElementById("menu");
   const menuMatchup = document.getElementById("menuMatchup");
+  const modeStep = document.getElementById("modeStep");
   const characterStep = document.getElementById("characterStep");
+  const connectionStep = document.getElementById("connectionStep");
+  const hostConnection = document.getElementById("hostConnection");
+  const joinConnection = document.getElementById("joinConnection");
+  const roomCode = document.getElementById("roomCode");
+  const roomCodeInput = document.getElementById("roomCodeInput");
   const difficultyStep = document.getElementById("difficultyStep");
   const result = document.getElementById("result");
   const resultTitle = document.getElementById("resultTitle");
   const resultReason = document.getElementById("resultReason");
   const startButton = document.getElementById("startButton");
   const restartButton = document.getElementById("restartButton");
+  const hostContinueButton = document.getElementById("hostContinueButton");
+  const joinContinueButton = document.getElementById("joinContinueButton");
+  const connectionBackButton = document.getElementById("connectionBackButton");
   const moveZone = document.getElementById("moveZone");
   const actionZone = document.getElementById("actionZone");
+  const modeButtons = [...document.querySelectorAll(".mode-button")];
   const characterButtons = [...document.querySelectorAll(".character-button")];
   const difficultyButtons = [...document.querySelectorAll(".difficulty-button")];
 
@@ -29,6 +39,7 @@
   const staminaRecovery = 10;
   const tiredSeconds = 2.4;
   const matchSeconds = 99;
+  const signalingUrl = "http://localhost:8787";
 
   const difficultySettings = {
     easy: { label: "Easy", aiDelay: 0.86, aiAggression: 0.42, mash: 4.6, defense: 0.7 },
@@ -54,10 +65,14 @@
   const game = {
     state: "menu",
     difficulty: "easy",
+    matchMode: "cpu",
+    roomCode: "",
     playerCharacter: "rooeeebee",
+    remoteCharacter: "",
+    frame: 0,
     time: matchSeconds,
     timerCarry: 0,
-    message: "SELECT YOUR WRESTLER",
+    message: "SELECT MODE",
     messageTimer: 0,
     shake: 0,
     last: performance.now(),
@@ -69,6 +84,20 @@
     damageTexts: [],
     ko: null,
     winner: null,
+  };
+
+  const net = {
+    peer: null,
+    channel: null,
+    role: "",
+    pollTimer: null,
+    lastMessageId: 0,
+    connected: false,
+    remoteDescriptionSet: false,
+    pendingCandidates: [],
+    lastRemoteFrame: -1,
+    remoteFrameInputs: new Map(),
+    localCharacterSent: false,
   };
 
   const p1 = makeFighter("rooeeebee", 230, 1, true);
@@ -162,16 +191,299 @@
 
   function previewSelectedMatchup() {
     const cpuCharacter = opponentCharacter(game.playerCharacter);
-    Object.assign(p1, makeFighter(game.playerCharacter, 230, 1, true));
-    Object.assign(p2, makeFighter(cpuCharacter, 490, -1, false));
+    const hostCharacter = game.matchMode === "join" ? game.remoteCharacter || cpuCharacter : game.playerCharacter;
+    const joinCharacter = game.matchMode === "join" ? game.playerCharacter : game.remoteCharacter || cpuCharacter;
+    const leftCharacter = isOnlineMatch() ? hostCharacter : game.playerCharacter;
+    const rightCharacter = isOnlineMatch() ? joinCharacter : cpuCharacter;
+    Object.assign(p1, makeFighter(leftCharacter, 230, 1, game.matchMode !== "join"));
+    Object.assign(p2, makeFighter(rightCharacter, 490, -1, game.matchMode === "join"));
     menuMatchup.textContent = `${p1.name} vs ${p2.name}`;
+  }
+
+  function makeRoomCode() {
+    return String(Math.floor(10000000 + Math.random() * 90000000));
+  }
+
+  async function signalingRequest(path, options = {}) {
+    const response = await fetch(`${signalingUrl}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error(data.error || "Signaling server error");
+    return data;
+  }
+
+  async function createHostRoom() {
+    for (let tries = 0; tries < 5; tries += 1) {
+      const code = makeRoomCode();
+      try {
+        await signalingRequest("/rooms", {
+          method: "POST",
+          body: JSON.stringify({ code }),
+        });
+        return code;
+      } catch (error) {
+        if (!error.message.includes("already exists")) throw error;
+      }
+    }
+    throw new Error("Could not create room");
+  }
+
+  async function findJoinRoom(code) {
+    await signalingRequest(`/rooms/${code}`);
+  }
+
+  function otherRole(role) {
+    return role === "host" ? "join" : "host";
+  }
+
+  function stopNetwork() {
+    if (net.pollTimer) clearInterval(net.pollTimer);
+    if (net.channel) net.channel.close();
+    if (net.peer) net.peer.close();
+    net.peer = null;
+    net.channel = null;
+    net.role = "";
+    net.pollTimer = null;
+    net.lastMessageId = 0;
+    net.connected = false;
+    net.remoteDescriptionSet = false;
+    net.pendingCandidates = [];
+    net.lastRemoteFrame = -1;
+    net.remoteFrameInputs.clear();
+    net.localCharacterSent = false;
+  }
+
+  function sendPeerMessage(type, payload) {
+    if (!net.channel || net.channel.readyState !== "open") return;
+    net.channel.send(JSON.stringify({ type, payload }));
+  }
+
+  function handlePeerMessage(message) {
+    if (message.type === "character" && characters[message.payload]) {
+      game.remoteCharacter = message.payload;
+      previewSelectedMatchup();
+      game.message = "CHARACTER SYNC";
+      game.messageTimer = 0.8;
+      return;
+    }
+    if (message.type !== "input" || !message.payload) return;
+    const frameInput = copyFrameInput(message.payload);
+    net.remoteFrameInputs.set(frameInput.frame, frameInput);
+    pruneRemoteFrameInputs(frameInput.frame);
+    net.lastRemoteFrame = frameInput.frame;
+    game.message = `REMOTE F${net.lastRemoteFrame} x${net.remoteFrameInputs.size}`;
+    game.messageTimer = 0.35;
+  }
+
+  function pruneRemoteFrameInputs(latestFrame) {
+    const cutoff = latestFrame - 180;
+    net.remoteFrameInputs.forEach((_, frame) => {
+      if (frame < cutoff) net.remoteFrameInputs.delete(frame);
+    });
+  }
+
+  function setupDataChannel(channel) {
+    net.channel = channel;
+    channel.addEventListener("open", () => {
+      net.connected = true;
+      menuMatchup.textContent = "CONNECTED";
+      game.message = "CONNECTED";
+      sendLocalCharacter();
+    });
+    channel.addEventListener("close", () => {
+      net.connected = false;
+      game.message = "DISCONNECTED";
+    });
+    channel.addEventListener("message", (event) => {
+      try {
+        handlePeerMessage(JSON.parse(event.data));
+      } catch (error) {
+        game.message = "PEER MESSAGE";
+        game.messageTimer = 0.6;
+      }
+    });
+  }
+
+  function sendLocalCharacter() {
+    if (!net.connected || net.localCharacterSent) return;
+    sendPeerMessage("character", game.playerCharacter);
+    net.localCharacterSent = true;
+  }
+
+  async function sendSignal(type, payload) {
+    if (!game.roomCode || !net.role) return;
+    await signalingRequest(`/rooms/${game.roomCode}/messages`, {
+      method: "POST",
+      body: JSON.stringify({
+        from: net.role,
+        to: otherRole(net.role),
+        type,
+        payload,
+      }),
+    });
+  }
+
+  async function applyPendingCandidates() {
+    if (!net.peer || !net.remoteDescriptionSet) return;
+    while (net.pendingCandidates.length > 0) {
+      await net.peer.addIceCandidate(net.pendingCandidates.shift());
+    }
+  }
+
+  async function handleSignalMessage(message) {
+    if (!net.peer) return;
+    if (message.type === "offer") {
+      await net.peer.setRemoteDescription(message.payload);
+      net.remoteDescriptionSet = true;
+      await applyPendingCandidates();
+      const answer = await net.peer.createAnswer();
+      await net.peer.setLocalDescription(answer);
+      await sendSignal("answer", net.peer.localDescription);
+      return;
+    }
+    if (message.type === "answer") {
+      await net.peer.setRemoteDescription(message.payload);
+      net.remoteDescriptionSet = true;
+      await applyPendingCandidates();
+      return;
+    }
+    if (message.type === "candidate" && message.payload) {
+      const candidate = new RTCIceCandidate(message.payload);
+      if (net.remoteDescriptionSet) await net.peer.addIceCandidate(candidate);
+      else net.pendingCandidates.push(candidate);
+    }
+  }
+
+  async function pollSignals() {
+    if (!game.roomCode || !net.role) return;
+    try {
+      const data = await signalingRequest(`/rooms/${game.roomCode}/messages?to=${net.role}&since=${net.lastMessageId}`);
+      for (const message of data.messages) {
+        net.lastMessageId = Math.max(net.lastMessageId, message.id);
+        await handleSignalMessage(message);
+      }
+    } catch (error) {
+      game.message = "SIGNAL WAIT";
+    }
+  }
+
+  function startSignalPolling() {
+    if (net.pollTimer) clearInterval(net.pollTimer);
+    net.pollTimer = setInterval(pollSignals, 800);
+    pollSignals();
+  }
+
+  function createPeer(role) {
+    stopNetwork();
+    net.role = role;
+    net.peer = new RTCPeerConnection({ iceServers: [] });
+    net.peer.addEventListener("icecandidate", (event) => {
+      if (event.candidate) sendSignal("candidate", event.candidate);
+    });
+    net.peer.addEventListener("connectionstatechange", () => {
+      if (net.peer.connectionState === "connected") {
+        net.connected = true;
+        menuMatchup.textContent = "CONNECTED";
+        game.message = "CONNECTED";
+      }
+      if (["failed", "closed", "disconnected"].includes(net.peer.connectionState)) {
+        net.connected = false;
+      }
+    });
+    net.peer.addEventListener("datachannel", (event) => {
+      setupDataChannel(event.channel);
+    });
+  }
+
+  async function startHostPeer() {
+    createPeer("host");
+    setupDataChannel(net.peer.createDataChannel("inputs"));
+    const offer = await net.peer.createOffer();
+    await net.peer.setLocalDescription(offer);
+    await sendSignal("offer", net.peer.localDescription);
+    startSignalPolling();
+  }
+
+  async function startJoinPeer() {
+    createPeer("join");
+    startSignalPolling();
+  }
+
+  function showConnectionError(message) {
+    menuMatchup.textContent = message;
+    game.message = message;
+    hostContinueButton.disabled = false;
+    joinContinueButton.disabled = false;
+  }
+
+  function showCharacterStep() {
+    modeStep.hidden = true;
+    connectionStep.hidden = true;
+    hostConnection.hidden = true;
+    joinConnection.hidden = true;
+    characterStep.hidden = false;
+    menuMatchup.textContent = "SELECT YOUR WRESTLER";
+    game.message = "SELECT YOUR WRESTLER";
+  }
+
+  function showConnectionStep(mode) {
+    modeStep.hidden = true;
+    characterStep.hidden = true;
+    connectionStep.hidden = false;
+    hostConnection.hidden = mode !== "host";
+    joinConnection.hidden = mode !== "join";
+    hostContinueButton.disabled = false;
+    joinContinueButton.disabled = false;
+    if (mode === "host") {
+      game.roomCode = "";
+      roomCode.textContent = "--------";
+      hostContinueButton.textContent = "CREATE ROOM";
+      menuMatchup.textContent = "CREATE ROOM";
+      game.message = "CREATE ROOM";
+    } else {
+      game.roomCode = "";
+      roomCodeInput.value = "";
+      menuMatchup.textContent = "ENTER ROOM CODE";
+      game.message = "ENTER ROOM CODE";
+      roomCodeInput.focus();
+    }
+  }
+
+  function showModeStep() {
+    stopNetwork();
+    game.matchMode = "cpu";
+    game.roomCode = "";
+    game.remoteCharacter = "";
+    hostContinueButton.disabled = false;
+    joinContinueButton.disabled = false;
+    modeButtons.forEach((button) => button.classList.remove("is-active"));
+    modeStep.hidden = false;
+    characterStep.hidden = true;
+    connectionStep.hidden = true;
+    hostConnection.hidden = true;
+    joinConnection.hidden = true;
+    menuMatchup.textContent = "SELECT MODE";
+    game.message = "SELECT MODE";
   }
 
   function resetMatch() {
     const cpuCharacter = opponentCharacter(game.playerCharacter);
-    Object.assign(p1, makeFighter(game.playerCharacter, 230, 1, true));
-    Object.assign(p2, makeFighter(cpuCharacter, 490, -1, false));
+    if (isOnlineMatch()) {
+      const hostCharacter = game.matchMode === "join" ? game.remoteCharacter || cpuCharacter : game.playerCharacter;
+      const joinCharacter = game.matchMode === "join" ? game.playerCharacter : game.remoteCharacter || cpuCharacter;
+      Object.assign(p1, makeFighter(hostCharacter, 230, 1, game.matchMode === "host"));
+      Object.assign(p2, makeFighter(joinCharacter, 490, -1, game.matchMode === "join"));
+    } else {
+      Object.assign(p1, makeFighter(game.playerCharacter, 230, 1, true));
+      Object.assign(p2, makeFighter(cpuCharacter, 490, -1, false));
+    }
     game.state = "play";
+    game.frame = 0;
     game.time = matchSeconds;
     game.timerCarry = 0;
     game.message = `${difficultySettings[game.difficulty].label.toUpperCase()} MATCH`;
@@ -227,10 +539,68 @@
     result.hidden = true;
   }
 
+  modeButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      game.matchMode = button.dataset.mode;
+      modeButtons.forEach((b) => b.classList.toggle("is-active", b === button));
+      if (game.matchMode === "cpu") showCharacterStep();
+      else showConnectionStep(game.matchMode);
+    });
+  });
+
+  hostContinueButton.addEventListener("click", async () => {
+    if (game.roomCode) {
+      showCharacterStep();
+      return;
+    }
+    hostContinueButton.disabled = true;
+    menuMatchup.textContent = "CREATING ROOM";
+    game.message = "CREATING ROOM";
+    try {
+      game.roomCode = await createHostRoom();
+      await startHostPeer();
+      roomCode.textContent = game.roomCode;
+      hostContinueButton.textContent = "CONTINUE";
+      hostContinueButton.disabled = false;
+      menuMatchup.textContent = "ROOM READY";
+      game.message = "SHARE ROOM CODE";
+    } catch (error) {
+      showConnectionError("SERVER NOT READY");
+    }
+  });
+
+  joinContinueButton.addEventListener("click", async () => {
+    const code = roomCodeInput.value.trim();
+    if (code.length !== 8) {
+      game.message = "ENTER 8 DIGITS";
+      menuMatchup.textContent = "ENTER 8 DIGITS";
+      return;
+    }
+    joinContinueButton.disabled = true;
+    menuMatchup.textContent = "FINDING ROOM";
+    game.message = "FINDING ROOM";
+    try {
+      await findJoinRoom(code);
+      game.roomCode = code;
+      await startJoinPeer();
+      showCharacterStep();
+    } catch (error) {
+      showConnectionError("ROOM NOT FOUND");
+    }
+  });
+
+  roomCodeInput.addEventListener("input", () => {
+    roomCodeInput.value = roomCodeInput.value.replace(/\D/g, "").slice(0, 8);
+  });
+
+  connectionBackButton.addEventListener("click", showModeStep);
+
   characterButtons.forEach((button) => {
     button.addEventListener("click", () => {
       game.playerCharacter = button.dataset.character;
       characterButtons.forEach((b) => b.classList.toggle("is-active", b === button));
+      net.localCharacterSent = false;
+      sendLocalCharacter();
       previewSelectedMatchup();
       characterStep.hidden = true;
       difficultyStep.hidden = false;
@@ -250,12 +620,10 @@
   restartButton.addEventListener("click", () => {
     result.hidden = true;
     menu.hidden = false;
-    characterStep.hidden = false;
+    showModeStep();
     difficultyStep.hidden = true;
     characterButtons.forEach((button) => button.classList.remove("is-active"));
-    menuMatchup.textContent = "SELECT YOUR WRESTLER";
     game.state = "menu";
-    game.message = "SELECT YOUR WRESTLER";
   });
 
   const input = {
@@ -269,6 +637,40 @@
     actionStartY: 0,
     actionStartTime: 0,
   };
+
+  const localFrameInput = makeFrameInput();
+
+  function makeFrameInput() {
+    return {
+      frame: 0,
+      moveX: 0,
+      moveY: 0,
+      actions: [],
+    };
+  }
+
+  function copyFrameInput(frameInput) {
+    return {
+      frame: frameInput.frame,
+      moveX: frameInput.moveX,
+      moveY: frameInput.moveY,
+      actions: frameInput.actions.map((action) => ({ ...action })),
+    };
+  }
+
+  function resetFrameActions(frameInput) {
+    frameInput.actions.length = 0;
+  }
+
+  function syncLocalMoveInput() {
+    localFrameInput.frame = game.frame;
+    localFrameInput.moveX = input.moveX;
+    localFrameInput.moveY = input.moveY;
+  }
+
+  function queueLocalAction(dx, dy, elapsed) {
+    localFrameInput.actions.push({ dx, dy, elapsed });
+  }
 
   function localPoint(event) {
     const rect = canvas.getBoundingClientRect();
@@ -314,7 +716,7 @@
     input.actionStartX = p.x;
     input.actionStartY = p.y;
     input.actionStartTime = performance.now();
-    countMash(p1);
+    applyMashInput(localFighter());
   });
 
   actionZone.addEventListener("pointerup", (event) => {
@@ -324,7 +726,7 @@
     const dy = p.y - input.actionStartY;
     const elapsed = performance.now() - input.actionStartTime;
     input.actionPointer = null;
-    handleActionGesture(dx, dy, elapsed);
+    queueLocalAction(dx, dy, elapsed);
   });
 
   actionZone.addEventListener("pointercancel", (event) => {
@@ -337,11 +739,11 @@
     if (event.key === "ArrowRight") input.moveX = 1;
     if (event.key === "w") input.moveY = -1;
     if (event.key === "s") input.moveY = 1;
-    if (event.key === " ") handleActionGesture(0, 0, 0);
-    if (event.key === "ArrowUp") handleActionGesture(0, -90, 0);
-    if (event.key === "ArrowDown") handleActionGesture(0, 90, 0);
-    if (event.key === "a") handleActionGesture(-90, 0, 0);
-    if (event.key === "d") handleActionGesture(90, 0, 0);
+    if (event.key === " ") queueLocalAction(0, 0, 0);
+    if (event.key === "ArrowUp") queueLocalAction(0, -90, 0);
+    if (event.key === "ArrowDown") queueLocalAction(0, 90, 0);
+    if (event.key === "a") queueLocalAction(-90, 0, 0);
+    if (event.key === "d") queueLocalAction(90, 0, 0);
   });
 
   window.addEventListener("keyup", (event) => {
@@ -349,36 +751,75 @@
     if (event.key === "w" || event.key === "s") input.moveY = 0;
   });
 
-  function handleActionGesture(dx, dy, elapsed) {
+  function applyFrameActions(fighter, frameInput) {
+    frameInput.actions.forEach((action) => {
+      applyActionGesture(fighter, action.dx, action.dy, action.elapsed);
+    });
+  }
+
+  function sendFrameInput(frameInput) {
+    if (!net.connected) return;
+    sendPeerMessage("input", copyFrameInput(frameInput));
+  }
+
+  function latestRemoteFrameInput() {
+    if (net.lastRemoteFrame < 0) return makeFrameInput();
+    return net.remoteFrameInputs.get(net.lastRemoteFrame) || makeFrameInput();
+  }
+
+  function isOnlineMatch() {
+    return game.matchMode === "host" || game.matchMode === "join";
+  }
+
+  function localFighter() {
+    return game.matchMode === "join" ? p2 : p1;
+  }
+
+  function remoteFighter() {
+    return game.matchMode === "join" ? p1 : p2;
+  }
+
+  function applyMoveInput(fighter, moveX, moveY, dt) {
+    updateMovement(fighter, moveX, moveY, dt);
+  }
+
+  function applyMashInput(fighter) {
+    if (!game.submission || game.submission.attacker === fighter || game.submission.defender === fighter) {
+      countMash(fighter);
+    }
+  }
+
+  function applyActionGesture(fighter, dx, dy, elapsed) {
     if (game.state !== "play") return;
     if (game.throwAnim) return;
     if (game.submission) {
-      countMash(p1);
+      applyMashInput(fighter);
       return;
     }
+    const defender = opponentOf(fighter);
     const absX = Math.abs(dx);
     const absY = Math.abs(dy);
     const tap = Math.max(absX, absY) < 34 && elapsed < 320;
-    const toward = Math.sign(dx) === p1.facing && absX > 46 && absX > absY;
-    const away = Math.sign(dx) === -p1.facing && absX > 46 && absX > absY;
+    const toward = Math.sign(dx) === fighter.facing && absX > 46 && absX > absY;
+    const away = Math.sign(dx) === -fighter.facing && absX > 46 && absX > absY;
 
-    if (p1.dash > 0 && tap) return performLariat(p1, p2);
+    if (fighter.dash > 0 && tap) return performLariat(fighter, defender);
 
-    if (game.grab && isInGrab(p1)) {
+    if (game.grab && isInGrab(fighter)) {
       const contestAction = classifyGrabAction(tap, absX, absY, dy, toward, away);
       if (game.grabContest) {
-        if (contestAction) countGrabContestInput(p1, contestAction);
+        if (contestAction) countGrabContestInput(fighter, contestAction);
         return;
       }
-      if (contestAction) return executeGrabAction(p1, p2, contestAction);
+      if (contestAction) return executeGrabAction(fighter, defender, contestAction);
       return;
     }
 
-    if (tap) return tryStrike(p1, p2, "punch");
-    if (absY > absX && dy < -42) return tryStrike(p1, p2, "highKick");
-    if (absY > absX && dy > 42) return tryStrike(p1, p2, "lowKick");
-    if (toward) return tryGrab(p1, p2);
-    if (away) return startGuard(p1);
+    if (tap) return tryStrike(fighter, defender, "punch");
+    if (absY > absX && dy < -42) return tryStrike(fighter, defender, "highKick");
+    if (absY > absX && dy > 42) return tryStrike(fighter, defender, "lowKick");
+    if (toward) return tryGrab(fighter, defender);
+    if (away) return startGuard(fighter);
   }
 
   function update(dt) {
@@ -387,6 +828,16 @@
       return;
     }
     if (game.state !== "play") return;
+
+    syncLocalMoveInput();
+    const local = localFighter();
+    const remote = remoteFighter();
+    applyFrameActions(local, localFrameInput);
+    sendFrameInput(localFrameInput);
+    const remoteFrameInput = latestRemoteFrameInput();
+    if (isOnlineMatch()) applyFrameActions(remote, remoteFrameInput);
+    resetFrameActions(localFrameInput);
+    game.frame += 1;
 
     game.timerCarry += dt;
     if (game.timerCarry >= 1) {
@@ -418,10 +869,11 @@
     if (game.grab) {
       maintainGrab(dt);
       updateGrabContest(dt);
-      if (!game.grabContest) updateAiGrab(dt);
+      if (!game.grabContest && !isOnlineMatch()) updateAiGrab(dt);
     } else {
-      updateMovement(p1, input.moveX, input.moveY, dt);
-      updateAi(dt);
+      applyMoveInput(local, localFrameInput.moveX, localFrameInput.moveY, dt);
+      if (isOnlineMatch()) applyMoveInput(remote, remoteFrameInput.moveX, remoteFrameInput.moveY, dt);
+      else updateAi(dt);
     }
 
     p1.sp = clamp(p1.sp + dt * staminaRecovery, 0, 100);
@@ -634,6 +1086,7 @@
   }
 
   function countCpuGrabContestInput(dt) {
+    if (isOnlineMatch()) return;
     const contest = game.grabContest;
     if (!contest || !isInGrab(p2) || p2.tired > 0) return;
     const settings = difficultySettings[game.difficulty];
@@ -977,6 +1430,7 @@
   }
 
   function countCpuMash(dt) {
+    if (isOnlineMatch()) return;
     const settings = difficultySettings[game.difficulty];
     if (game.submission) {
       const cpu = game.submission.attacker === p2 || game.submission.defender === p2 ? p2 : null;

@@ -106,11 +106,16 @@ button {
   font-size: 14px;
 }
 
+.mode-row,
 .character-row,
 .difficulty-row {
   display: grid;
   gap: 8px;
   margin-bottom: 14px;
+}
+
+.mode-row {
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .character-row {
@@ -121,8 +126,10 @@ button {
   grid-template-columns: repeat(3, 1fr);
 }
 
+.mode-button,
 .character-button,
 .difficulty-button,
+.secondary-button,
 .primary-button {
   min-height: 44px;
   border: 2px solid #eef6ff;
@@ -131,10 +138,35 @@ button {
   cursor: pointer;
 }
 
+.mode-button.is-active,
 .character-button.is-active,
 .difficulty-button.is-active {
   background: #ffe45c;
   color: #151923;
+}
+
+.connection-label {
+  margin-bottom: 8px !important;
+  color: #ffe45c !important;
+}
+
+.room-code,
+.room-code-input {
+  width: 100%;
+  min-height: 58px;
+  margin-bottom: 14px;
+  border: 2px solid #eef6ff;
+  background: #080b12;
+  color: #fff;
+  font: inherit;
+  font-size: 28px;
+  text-align: center;
+  letter-spacing: 0;
+}
+
+.room-code {
+  display: grid;
+  place-items: center;
 }
 
 .primary-button {
@@ -142,6 +174,11 @@ button {
   background: #2cdb65;
   color: #08100c;
   font-weight: 800;
+}
+
+.secondary-button {
+  width: 100%;
+  margin-top: 8px;
 }
 
 [hidden] {
