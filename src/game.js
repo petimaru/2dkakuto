@@ -40,6 +40,12 @@
   const tiredSeconds = 2.4;
   const matchSeconds = 99;
   const signalingUrl = "http://localhost:8787";
+  const playerColors = {
+    p1: "#ff4040",
+    p1Dark: "#6f131c",
+    p2: "#2f6eff",
+    p2Dark: "#123b8f",
+  };
 
   const difficultySettings = {
     easy: { label: "Easy", aiDelay: 0.86, aiAggression: 0.42, mash: 4.6, defense: 0.7 },
@@ -98,6 +104,9 @@
     lastRemoteFrame: -1,
     remoteFrameInputs: new Map(),
     localCharacterSent: false,
+    localReady: false,
+    remoteReady: false,
+    startTimer: null,
   };
 
   const p1 = makeFighter("rooeeebee", 230, 1, true);
@@ -243,6 +252,7 @@
 
   function stopNetwork() {
     if (net.pollTimer) clearInterval(net.pollTimer);
+    if (net.startTimer) clearTimeout(net.startTimer);
     if (net.channel) net.channel.close();
     if (net.peer) net.peer.close();
     net.peer = null;
@@ -256,6 +266,9 @@
     net.lastRemoteFrame = -1;
     net.remoteFrameInputs.clear();
     net.localCharacterSent = false;
+    net.localReady = false;
+    net.remoteReady = false;
+    net.startTimer = null;
   }
 
   function sendPeerMessage(type, payload) {
@@ -269,6 +282,17 @@
       previewSelectedMatchup();
       game.message = "CHARACTER SYNC";
       game.messageTimer = 0.8;
+      return;
+    }
+    if (message.type === "ready") {
+      net.remoteReady = true;
+      game.message = net.localReady ? "BOTH READY" : "RIVAL READY";
+      game.messageTimer = 0.9;
+      maybeStartOnlineMatch();
+      return;
+    }
+    if (message.type === "start") {
+      scheduleOnlineStart(Number(message.payload?.delayMs || 900));
       return;
     }
     if (message.type !== "input" || !message.payload) return;
@@ -501,6 +525,55 @@
     result.hidden = true;
   }
 
+  function resetOnlineReady() {
+    if (net.startTimer) clearTimeout(net.startTimer);
+    net.localReady = false;
+    net.remoteReady = false;
+    net.startTimer = null;
+    startButton.disabled = false;
+    startButton.textContent = isOnlineMatch() ? "READY" : "START";
+  }
+
+  function readyOnlineMatch() {
+    if (!net.connected) {
+      game.message = "WAIT CONNECTION";
+      menuMatchup.textContent = "WAIT CONNECTION";
+      return;
+    }
+    if (!game.remoteCharacter) {
+      game.message = "WAIT RIVAL PICK";
+      menuMatchup.textContent = "WAIT RIVAL PICK";
+      return;
+    }
+    net.localReady = true;
+    startButton.disabled = true;
+    startButton.textContent = "READY";
+    game.message = net.remoteReady ? "BOTH READY" : "WAITING RIVAL";
+    menuMatchup.textContent = game.message;
+    sendPeerMessage("ready", { character: game.playerCharacter });
+    maybeStartOnlineMatch();
+  }
+
+  function maybeStartOnlineMatch() {
+    if (!isOnlineMatch() || !net.localReady || !net.remoteReady || net.startTimer) return;
+    if (net.role === "host") {
+      const delayMs = 900;
+      sendPeerMessage("start", { delayMs });
+      scheduleOnlineStart(delayMs);
+    }
+  }
+
+  function scheduleOnlineStart(delayMs) {
+    if (net.startTimer) return;
+    startButton.disabled = true;
+    game.message = "MATCH START";
+    menuMatchup.textContent = "MATCH START";
+    net.startTimer = setTimeout(() => {
+      net.startTimer = null;
+      resetMatch();
+    }, Math.max(0, delayMs));
+  }
+
   function endMatch(winner, reason) {
     game.state = "result";
     game.winner = winner;
@@ -600,6 +673,7 @@
       game.playerCharacter = button.dataset.character;
       characterButtons.forEach((b) => b.classList.toggle("is-active", b === button));
       net.localCharacterSent = false;
+      resetOnlineReady();
       sendLocalCharacter();
       previewSelectedMatchup();
       characterStep.hidden = true;
@@ -616,7 +690,10 @@
     });
   });
 
-  startButton.addEventListener("click", resetMatch);
+  startButton.addEventListener("click", () => {
+    if (isOnlineMatch()) readyOnlineMatch();
+    else resetMatch();
+  });
   restartButton.addEventListener("click", () => {
     result.hidden = true;
     menu.hidden = false;
@@ -1770,7 +1847,7 @@
   }
 
   function drawPortrait(x, y, f, left) {
-    ctx.fillStyle = left ? "#58c7ff" : "#6d6cff";
+    ctx.fillStyle = left ? playerColors.p1 : playerColors.p2;
     ctx.fillRect(x, y, 104, 104);
     ctx.fillStyle = "#111827";
     ctx.fillRect(x + 5, y + 5, 94, 94);
@@ -1829,7 +1906,7 @@
   }
 
   function drawStatus(x, y, f, left) {
-    pixelText(left ? "1P" : "2P", x, y - 10, 3.4, left ? "#6ecfff" : "#ff5656");
+    pixelText(left ? "1P" : "2P", x, y - 10, 3.4, left ? playerColors.p1 : playerColors.p2);
     pixelText(f.name, x, y + 26, 2.7, "#fff");
     ctx.fillStyle = "#101010";
     ctx.fillRect(x, y + 64, 166, 28);
@@ -1866,6 +1943,8 @@
   }
 
   function drawFighter(f) {
+    drawPlayerMarker(f);
+
     ctx.save();
     ctx.translate(f.x, f.y);
     ctx.scale(f.facing, 1);
@@ -1886,6 +1965,30 @@
       ctx.fillRect(f.x - f.facing * 85, f.y - 78, 48, 8);
       ctx.fillRect(f.x - f.facing * 114, f.y - 44, 62, 7);
     }
+  }
+
+  function drawPlayerMarker(f) {
+    const isP1 = f === p1;
+    const color = isP1 ? playerColors.p1 : playerColors.p2;
+    const dark = isP1 ? playerColors.p1Dark : playerColors.p2Dark;
+    const label = isP1 ? "1P" : "2P";
+    const width = isP1 ? 92 : 96;
+    const markerY = f.y + 3;
+
+    ctx.save();
+    ctx.globalAlpha = 0.88;
+    ctx.fillStyle = dark;
+    ctx.beginPath();
+    ctx.ellipse(f.x, markerY, width, 21, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    ctx.ellipse(f.x, markerY, width, 21, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    pixelText(label, f.x - 18, markerY + 9, 2.8, "#fff");
+    ctx.restore();
   }
 
   function drawFighterBody(f, portrait) {
