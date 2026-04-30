@@ -1281,7 +1281,7 @@
     ctx.fillStyle = "#111827";
     ctx.fillRect(x + 5, y + 5, 94, 94);
 
-    if (drawPortraitSprite(x + 5, y + 5, 94, f)) return;
+    if (drawPortraitSprite(x + 5, y + 5, 94, f, left)) return;
 
     ctx.save();
     ctx.translate(x + 52, y + 62);
@@ -1290,7 +1290,7 @@
     ctx.restore();
   }
 
-  function drawPortraitSprite(x, y, size, f) {
+  function drawPortraitSprite(x, y, size, f, left) {
     const set = f.player ? spriteImages.rooeeebee : spriteImages.petiman;
     const mood = f.hp <= 0 ? "ko" : f.hp <= 50 ? "tired" : "idle";
     const img = set[mood];
@@ -1301,7 +1301,13 @@
     ctx.beginPath();
     ctx.rect(x, y, size, size);
     ctx.clip();
-    ctx.drawImage(img, crop.x, crop.y, crop.w, crop.h, x, y, size, size);
+    if (left) {
+      ctx.drawImage(img, crop.x, crop.y, crop.w, crop.h, x, y, size, size);
+    } else {
+      ctx.translate(x + size, y);
+      ctx.scale(-1, 1);
+      ctx.drawImage(img, crop.x, crop.y, crop.w, crop.h, 0, 0, size, size);
+    }
     ctx.restore();
     return true;
   }
@@ -1586,13 +1592,6 @@
   }
 
   function drawEffects() {
-    if (game.submission) {
-      const s = game.submission;
-      const pulse = 0.22 + Math.sin(performance.now() / 90) * 0.08;
-      ctx.strokeStyle = `rgba(255, 231, 107, ${pulse})`;
-      ctx.lineWidth = 5;
-      ctx.strokeRect((s.attacker.x + s.defender.x) / 2 - 182, Math.max(s.attacker.y, s.defender.y) - 154, 364, 122);
-    }
   }
 
   function drawGrabContestEffects() {
