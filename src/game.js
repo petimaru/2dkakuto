@@ -4,6 +4,9 @@
   const canvas = document.getElementById("game");
   const ctx = canvas.getContext("2d");
   const menu = document.getElementById("menu");
+  const menuMatchup = document.getElementById("menuMatchup");
+  const characterStep = document.getElementById("characterStep");
+  const difficultyStep = document.getElementById("difficultyStep");
   const result = document.getElementById("result");
   const resultTitle = document.getElementById("resultTitle");
   const resultReason = document.getElementById("resultReason");
@@ -11,6 +14,7 @@
   const restartButton = document.getElementById("restartButton");
   const moveZone = document.getElementById("moveZone");
   const actionZone = document.getElementById("actionZone");
+  const characterButtons = [...document.querySelectorAll(".character-button")];
   const difficultyButtons = [...document.querySelectorAll(".difficulty-button")];
 
   const W = canvas.width;
@@ -32,6 +36,11 @@
     hard: { label: "Hard", aiDelay: 0.36, aiAggression: 0.76, mash: 8.2, defense: 1.05 },
   };
 
+  const characters = {
+    rooeeebee: { name: "ROOEEBEE", width: 116, height: 246, normalHeight: 252, koHeight: 244, koScale: 0.6 },
+    petiman: { name: "PETIMAN", width: 132, height: 210, normalHeight: 214, koHeight: 212, koScale: 0.8 },
+  };
+
   const moves = {
     punch: { label: "PUNCH", damage: 7, range: 78, stun: 0.18, cost: 8 },
     highKick: { label: "HIGH KICK", damage: 11, range: 92, stun: 0.3, cost: 13 },
@@ -45,9 +54,10 @@
   const game = {
     state: "menu",
     difficulty: "easy",
+    playerCharacter: "rooeeebee",
     time: matchSeconds,
     timerCarry: 0,
-    message: "SELECT DIFFICULTY",
+    message: "SELECT YOUR WRESTLER",
     messageTimer: 0,
     shake: 0,
     last: performance.now(),
@@ -61,8 +71,8 @@
     winner: null,
   };
 
-  const p1 = makeFighter("ROOEEBEE", 230, 1, true);
-  const p2 = makeFighter("PETIMAN", 490, -1, false);
+  const p1 = makeFighter("rooeeebee", 230, 1, true);
+  const p2 = makeFighter("petiman", 490, -1, false);
   const arenaImage = loadSprite("./assets/backgrounds/ring-arena.png");
   const figureFourImages = {
     rooeeebee: loadSprite("./assets/sprites/figure-four.png"),
@@ -110,9 +120,11 @@
     return img;
   }
 
-  function makeFighter(name, x, facing, player) {
+  function makeFighter(character, x, facing, player) {
+    const config = characters[character];
     return {
-      name,
+      name: config.name,
+      character,
       x,
       y: floorY,
       vx: 0,
@@ -120,8 +132,8 @@
       facing,
       hp: 100,
       sp: 22,
-      width: player ? 116 : 132,
-      height: player ? 246 : 210,
+      width: config.width,
+      height: config.height,
       guard: 0,
       stun: 0,
       tired: 0,
@@ -144,9 +156,21 @@
     };
   }
 
+  function opponentCharacter(character) {
+    return character === "rooeeebee" ? "petiman" : "rooeeebee";
+  }
+
+  function previewSelectedMatchup() {
+    const cpuCharacter = opponentCharacter(game.playerCharacter);
+    Object.assign(p1, makeFighter(game.playerCharacter, 230, 1, true));
+    Object.assign(p2, makeFighter(cpuCharacter, 490, -1, false));
+    menuMatchup.textContent = `${p1.name} vs ${p2.name}`;
+  }
+
   function resetMatch() {
-    Object.assign(p1, makeFighter("ROOEEBEE", 230, 1, true));
-    Object.assign(p2, makeFighter("PETIMAN", 490, -1, false));
+    const cpuCharacter = opponentCharacter(game.playerCharacter);
+    Object.assign(p1, makeFighter(game.playerCharacter, 230, 1, true));
+    Object.assign(p2, makeFighter(cpuCharacter, 490, -1, false));
     game.state = "play";
     game.time = matchSeconds;
     game.timerCarry = 0;
@@ -203,6 +227,17 @@
     result.hidden = true;
   }
 
+  characterButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      game.playerCharacter = button.dataset.character;
+      characterButtons.forEach((b) => b.classList.toggle("is-active", b === button));
+      previewSelectedMatchup();
+      characterStep.hidden = true;
+      difficultyStep.hidden = false;
+      game.message = "SELECT DIFFICULTY";
+    });
+  });
+
   difficultyButtons.forEach((button) => {
     button.addEventListener("click", () => {
       game.difficulty = button.dataset.difficulty;
@@ -215,7 +250,12 @@
   restartButton.addEventListener("click", () => {
     result.hidden = true;
     menu.hidden = false;
+    characterStep.hidden = false;
+    difficultyStep.hidden = true;
+    characterButtons.forEach((button) => button.classList.remove("is-active"));
+    menuMatchup.textContent = "SELECT YOUR WRESTLER";
     game.state = "menu";
+    game.message = "SELECT YOUR WRESTLER";
   });
 
   const input = {
@@ -1291,7 +1331,7 @@
   }
 
   function drawPortraitSprite(x, y, size, f, left) {
-    const set = f.player ? spriteImages.rooeeebee : spriteImages.petiman;
+    const set = spriteImages[f.character];
     const mood = f.hp <= 0 ? "ko" : f.hp <= 50 ? "tired" : "idle";
     const img = set[mood];
     if (!img || !img.complete || img.naturalWidth === 0) return false;
@@ -1301,7 +1341,7 @@
     ctx.beginPath();
     ctx.rect(x, y, size, size);
     ctx.clip();
-    if (left) {
+    if (left || (f.character === "petiman" && mood === "ko")) {
       ctx.drawImage(img, crop.x, crop.y, crop.w, crop.h, x, y, size, size);
     } else {
       ctx.translate(x + size, y);
@@ -1314,7 +1354,7 @@
 
   function portraitCrop(f, mood, img) {
     const fallback = { x: img.naturalWidth * 0.25, y: 0, w: img.naturalWidth * 0.5, h: img.naturalWidth * 0.5 };
-    const crops = f.player
+    const crops = f.character === "rooeeebee"
       ? {
           idle: [230, 0, 420, 420],
           tired: [300, 0, 390, 390],
@@ -1395,13 +1435,13 @@
   }
 
   function drawFighterBody(f, portrait) {
-    const isP1 = f.player;
+    const isRooeeebee = f.character === "rooeeebee";
     const bob = portrait ? 0 : Math.sin(performance.now() / 130) * 3;
     ctx.translate(0, bob);
 
     if (!portrait && drawCharacterSprite(f)) return;
 
-    if (isP1) {
+    if (isRooeeebee) {
       ctx.fillStyle = "#171717";
       ctx.fillRect(-35, -58, 24, 58);
       ctx.fillRect(8, -58, 24, 58);
@@ -1468,7 +1508,7 @@
   }
 
   function drawCharacterSprite(f) {
-    const set = f.player ? spriteImages.rooeeebee : spriteImages.petiman;
+    const set = spriteImages[f.character];
     let img = set.idle;
     if (isKoFlying(f)) img = set.damage;
     else if (f.hp <= 0) img = set.ko;
@@ -1480,9 +1520,11 @@
     else if (f.attack > 0 && set[f.attackKind]) img = set[f.attackKind];
     else if (f.dash > 0) img = set.run[Math.floor(performance.now() / 100) % set.run.length];
     if (!img.complete || img.naturalWidth === 0) return false;
-    const koScale = img === set.ko ? (f.player ? 0.6 : 0.8) : 1;
-    const targetHeight = (f.player ? 252 : 214) * koScale;
+    const config = characters[f.character];
+    const koScale = img === set.ko ? config.koScale : 1;
+    const targetHeight = config.normalHeight * koScale;
     const targetWidth = targetHeight * (img.naturalWidth / img.naturalHeight);
+    if (f.character === "petiman" && img === set.ko && f.facing === -1) ctx.scale(-1, 1);
     ctx.drawImage(img, -targetWidth / 2, -targetHeight, targetWidth, targetHeight);
     return true;
   }
@@ -1490,7 +1532,7 @@
   function drawSubmissionHold() {
     if (!game.submission) return;
     const s = game.submission;
-    const img = s.attacker === p1 ? figureFourImages.rooeeebee : figureFourImages.petiman;
+    const img = figureFourImages[s.attacker.character];
     if (!img.complete || img.naturalWidth === 0) return;
 
     const centerX = (s.attacker.x + s.defender.x) / 2;
@@ -1508,18 +1550,18 @@
     if (!game.throwAnim) return;
     const anim = game.throwAnim;
     const t = clamp(anim.timer / anim.duration, 0, 1);
-    const attackerSet = anim.attacker.player ? spriteImages.rooeeebee : spriteImages.petiman;
-    const defenderSet = anim.defender.player ? spriteImages.rooeeebee : spriteImages.petiman;
+    const attackerSet = spriteImages[anim.attacker.character];
+    const defenderSet = spriteImages[anim.defender.character];
 
     const attackerImg = anim.kind === "headbutt" ? attackerSet.punch : attackerSet.grab;
     const attackerTilt = anim.kind === "backdrop" ? 0.35 * anim.dir : 0;
-    drawSpriteAt(anim.attacker, attackerImg, anim.ax, anim.ay, anim.dir, attackerTilt, anim.attacker.player ? 252 : 214);
+    drawSpriteAt(anim.attacker, attackerImg, anim.ax, anim.ay, anim.dir, attackerTilt, characters[anim.attacker.character].normalHeight);
 
     let x = anim.ax + anim.dir * 58;
     let y = anim.ay - 46;
     let rotation = -0.6 * anim.dir;
     let img = defenderSet.damage;
-    let height = anim.defender.player ? 244 : 212;
+    let height = characters[anim.defender.character].koHeight;
 
     if (anim.kind === "headbutt") {
       const p = t;
@@ -1573,7 +1615,8 @@
   }
 
   function koSpriteHeight(f) {
-    return f.player ? 244 * 0.6 : 212 * 0.8;
+    const config = characters[f.character];
+    return config.koHeight * config.koScale;
   }
 
   function drawSpriteAt(f, img, x, y, facing, rotation, targetHeight) {

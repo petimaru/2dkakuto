@@ -23,13 +23,21 @@
 
       <section id="menu" class="menu-panel">
         <h1>PIXEL PRO WRESTLING</h1>
-        <p>ROOEEBEE vs PETIMAN</p>
-        <div class="difficulty-row" role="group" aria-label="Difficulty">
-          <button class="difficulty-button is-active" data-difficulty="easy">Easy</button>
-          <button class="difficulty-button" data-difficulty="normal">Normal</button>
-          <button class="difficulty-button" data-difficulty="hard">Hard</button>
+        <p id="menuMatchup">SELECT YOUR WRESTLER</p>
+        <div id="characterStep">
+          <div class="character-row" role="group" aria-label="Character">
+            <button class="character-button" data-character="rooeeebee">ROOEEBEE</button>
+            <button class="character-button" data-character="petiman">PETIMAN</button>
+          </div>
         </div>
-        <button id="startButton" class="primary-button">START</button>
+        <div id="difficultyStep" hidden>
+          <div class="difficulty-row" role="group" aria-label="Difficulty">
+            <button class="difficulty-button is-active" data-difficulty="easy">Easy</button>
+            <button class="difficulty-button" data-difficulty="normal">Normal</button>
+            <button class="difficulty-button" data-difficulty="hard">Hard</button>
+          </div>
+          <button id="startButton" class="primary-button">START</button>
+        </div>
       </section>
 
       <section id="result" class="result-panel" hidden>

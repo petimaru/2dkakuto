@@ -106,13 +106,22 @@ button {
   font-size: 14px;
 }
 
+.character-row,
 .difficulty-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   margin-bottom: 14px;
 }
 
+.character-row {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.difficulty-row {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.character-button,
 .difficulty-button,
 .primary-button {
   min-height: 44px;
@@ -122,6 +131,7 @@ button {
   cursor: pointer;
 }
 
+.character-button.is-active,
 .difficulty-button.is-active {
   background: #ffe45c;
   color: #151923;
