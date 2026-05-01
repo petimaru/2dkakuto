@@ -39,9 +39,12 @@
   const staminaRecovery = 10;
   const tiredSeconds = 2.4;
   const matchSeconds = 99;
-  const remoteInputDelayFrames = 4;
   const defaultSignalingUrl = "http://localhost:8787";
+  const stateSyncIntervalFrames = 6;
+  const urlParams = new URLSearchParams(window.location.search);
   const signalingUrl = getSignalingUrl();
+  const debugNet = urlParams.get("debug") === "1";
+  const remoteInputDelayFrames = getRemoteInputDelayFrames();
   const playerColors = {
     p1: "#ff4040",
     p1Dark: "#6f131c",
@@ -106,6 +109,7 @@
     lastRemoteFrame: -1,
     remoteFrameInputs: new Map(),
     lastRemoteInput: makeFrameInput(),
+    remoteState: null,
     localCharacterSent: false,
     localReady: false,
     remoteReady: false,
@@ -162,7 +166,7 @@
   }
 
   function getSignalingUrl() {
-    const signal = new URLSearchParams(window.location.search).get("signal");
+    const signal = urlParams.get("signal");
     if (!signal) return defaultSignalingUrl;
     try {
       const url = new URL(signal);
@@ -171,6 +175,12 @@
     } catch (error) {
       return defaultSignalingUrl;
     }
+  }
+
+  function getRemoteInputDelayFrames() {
+    const delay = Number(urlParams.get("delay"));
+    if (!Number.isFinite(delay)) return 4;
+    return Math.round(clamp(delay, 0, 12));
   }
 
   function makeFighter(character, x, facing, player) {
@@ -281,6 +291,7 @@
     net.lastRemoteFrame = -1;
     net.remoteFrameInputs.clear();
     net.lastRemoteInput = makeFrameInput();
+    net.remoteState = null;
     net.localCharacterSent = false;
     net.localReady = false;
     net.remoteReady = false;
@@ -309,6 +320,16 @@
     }
     if (message.type === "start") {
       scheduleOnlineStart(Number(message.payload?.delayMs || 900));
+      return;
+    }
+    if (message.type === "state" && message.payload) {
+      net.remoteState = {
+        frame: Number(message.payload.frame) || 0,
+        x: Number(message.payload.x) || 0,
+        y: Number(message.payload.y) || floorY,
+        vx: Number(message.payload.vx) || 0,
+        vy: Number(message.payload.vy) || 0,
+      };
       return;
     }
     if (message.type !== "input" || !message.payload) return;
@@ -540,6 +561,7 @@
     net.lastRemoteFrame = -1;
     net.remoteFrameInputs.clear();
     net.lastRemoteInput = makeFrameInput();
+    net.remoteState = null;
     menu.hidden = true;
     result.hidden = true;
   }
@@ -875,6 +897,17 @@
     sendPeerMessage("input", copyFrameInput(frameInput));
   }
 
+  function sendLocalState(fighter) {
+    if (!net.connected || game.frame % stateSyncIntervalFrames !== 0) return;
+    sendPeerMessage("state", {
+      frame: game.frame,
+      x: Math.round(fighter.x),
+      y: Math.round(fighter.y),
+      vx: Math.round(fighter.vx),
+      vy: Math.round(fighter.vy),
+    });
+  }
+
   function remoteFrameInputForPlayback() {
     if (net.lastRemoteFrame < 0) return makeFrameInput();
     const targetFrame = Math.max(0, game.frame - remoteInputDelayFrames);
@@ -905,6 +938,21 @@
 
   function applyMoveInput(fighter, moveX, moveY, dt) {
     updateMovement(fighter, moveX, moveY, dt);
+  }
+
+  function correctRemoteFighter(fighter, dt) {
+    const state = net.remoteState;
+    if (!state || game.grab || game.submission || game.throwAnim || game.ko) return;
+    const dx = state.x - fighter.x;
+    const dy = state.y - fighter.y;
+    const gap = Math.hypot(dx, dy);
+    if (gap < 4) return;
+    const strength = gap > 90 ? 0.45 : 0.12;
+    const blend = clamp(strength * dt * 60, 0, 0.55);
+    fighter.x = clamp(fighter.x + dx * blend, ring.left + fighter.width / 2, ring.right - fighter.width / 2);
+    fighter.y = clamp(fighter.y + dy * blend, lane.top, lane.bottom);
+    fighter.vx += (state.vx - fighter.vx) * blend;
+    fighter.vy += (state.vy - fighter.vy) * blend;
   }
 
   function applyMashInput(fighter) {
@@ -958,6 +1006,7 @@
     const remote = remoteFighter();
     applyFrameActions(local, localFrameInput);
     sendFrameInput(localFrameInput);
+    if (isOnlineMatch()) sendLocalState(local);
     const remoteFrameInput = remoteFrameInputForPlayback();
     if (isOnlineMatch()) applyFrameActions(remote, remoteFrameInput);
     resetFrameActions(localFrameInput);
@@ -999,6 +1048,7 @@
       if (isOnlineMatch()) applyMoveInput(remote, remoteFrameInput.moveX, remoteFrameInput.moveY, dt);
       else updateAi(dt);
     }
+    if (isOnlineMatch()) correctRemoteFighter(remote, dt);
 
     p1.sp = clamp(p1.sp + dt * staminaRecovery, 0, 100);
     p2.sp = clamp(p2.sp + dt * staminaRecovery, 0, 100);
@@ -2308,10 +2358,12 @@
     ctx.fillStyle = "rgba(0,0,0,0.38)";
     ctx.fillRect(16, 1118, 688, 42);
     pixelText("LEFT DRAG MOVE 8WAY / RIGHT TAP OR SWIPE", 34, 1132, 2, "#dce9ff");
-    if (isOnlineMatch()) {
+    if (isOnlineMatch() && debugNet) {
       const targetFrame = Math.max(0, game.frame - remoteInputDelayFrames);
       const waitingFrames = Math.max(0, targetFrame - net.lastRemoteFrame);
-      pixelText(`NET +${remoteInputDelayFrames} BUF ${net.remoteFrameInputs.size} LAG ${waitingFrames}`, 34, 1088, 2, "#7be8ff");
+      const remote = remoteFighter();
+      const stateGap = net.remoteState ? Math.round(Math.hypot(net.remoteState.x - remote.x, net.remoteState.y - remote.y)) : 0;
+      pixelText(`NET +${remoteInputDelayFrames} BUF ${net.remoteFrameInputs.size} LAG ${waitingFrames} GAP ${stateGap}`, 34, 1088, 2, "#7be8ff");
     }
   }
 
