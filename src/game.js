@@ -344,6 +344,10 @@
       applyRemoteHit(message.payload);
       return;
     }
+    if (message.type === "ko" && message.payload) {
+      applyRemoteKo(message.payload);
+      return;
+    }
     if (message.type !== "input" || !message.payload) return;
     const frameInput = copyFrameInput(message.payload);
     net.remoteFrameInputs.set(frameInput.frame, frameInput);
@@ -650,6 +654,7 @@
 
   function startKoSequence(winner, loser, reason, options = {}) {
     if (game.state === "ko" || game.state === "result") return;
+    maybeSendKoResult(winner, loser, reason, options);
     clearGrab();
     game.grabContest = null;
     game.submission = null;
@@ -958,6 +963,10 @@
 
   function fighterRole(fighter) {
     return fighter === p1 ? "host" : "join";
+  }
+
+  function fighterForRole(role) {
+    return role === "host" ? p1 : p2;
   }
 
   function applyMoveInput(fighter, moveX, moveY, dt) {
@@ -1693,6 +1702,21 @@
     });
   }
 
+  function maybeSendKoResult(winner, loser, reason, options) {
+    if (!isOnlineMatch() || options.remote || winner !== localFighter() || !net.connected) return;
+    sendPeerMessage("ko", {
+      frame: game.frame,
+      winnerRole: fighterRole(winner),
+      loserRole: fighterRole(loser),
+      reason,
+      skipFly: Boolean(options.skipFly),
+      winnerX: Math.round(winner.x),
+      winnerY: Math.round(winner.y),
+      loserX: Math.round(loser.x),
+      loserY: Math.round(loser.y),
+    });
+  }
+
   function applyRemoteHit(payload) {
     if (!isOnlineMatch() || payload.defenderRole !== net.role) return;
     const fighter = localFighter();
@@ -1710,6 +1734,20 @@
     fighter.invuln = Math.max(fighter.invuln, 0.08);
     game.shake = Math.max(game.shake, 0.13);
     checkHp();
+  }
+
+  function applyRemoteKo(payload) {
+    if (!isOnlineMatch()) return;
+    const winner = fighterForRole(payload.winnerRole);
+    const loser = fighterForRole(payload.loserRole);
+    winner.x = clamp(Number(payload.winnerX) || winner.x, ring.left + winner.width / 2, ring.right - winner.width / 2);
+    winner.y = clamp(Number(payload.winnerY) || winner.y, lane.top, lane.bottom);
+    loser.x = clamp(Number(payload.loserX) || loser.x, ring.left + loser.width / 2, ring.right - loser.width / 2);
+    loser.y = clamp(Number(payload.loserY) || loser.y, lane.top, lane.bottom);
+    startKoSequence(winner, loser, String(payload.reason || "KO"), {
+      skipFly: Boolean(payload.skipFly),
+      remote: true,
+    });
   }
 
   function damageRaw(f, amount) {
