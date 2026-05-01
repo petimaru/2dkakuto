@@ -340,6 +340,10 @@
       };
       return;
     }
+    if (message.type === "hit" && message.payload) {
+      applyRemoteHit(message.payload);
+      return;
+    }
     if (message.type !== "input" || !message.payload) return;
     const frameInput = copyFrameInput(message.payload);
     net.remoteFrameInputs.set(frameInput.frame, frameInput);
@@ -952,6 +956,10 @@
     return game.matchMode === "join" ? p1 : p2;
   }
 
+  function fighterRole(fighter) {
+    return fighter === p1 ? "host" : "join";
+  }
+
   function applyMoveInput(fighter, moveX, moveY, dt) {
     updateMovement(fighter, moveX, moveY, dt);
   }
@@ -1533,6 +1541,7 @@
       defender.y = clamp(anim.ay + 4, lane.top, lane.bottom);
       defender.downPose = anim.kind === "headbutt" ? 0 : 2;
       damageRaw(defender, move.damage);
+      maybeSendHitResult(anim.attacker, defender, move.damage);
       if (anim.kind === "headbutt") {
         defender.vx = dir * 210;
         defender.vy = -34;
@@ -1663,6 +1672,44 @@
     }
     defender.invuln = 0.08;
     game.shake = 0.13;
+    maybeSendHitResult(attacker, defender, final);
+  }
+
+  function maybeSendHitResult(attacker, defender, amount) {
+    if (!isOnlineMatch() || attacker !== localFighter() || !net.connected) return;
+    sendPeerMessage("hit", {
+      frame: game.frame,
+      attackerRole: fighterRole(attacker),
+      defenderRole: fighterRole(defender),
+      amount: Math.max(1, Math.round(amount)),
+      defenderHp: Math.round(defender.hp),
+      defenderX: Math.round(defender.x),
+      defenderY: Math.round(defender.y),
+      defenderVx: Math.round(defender.vx),
+      defenderVy: Math.round(defender.vy),
+      defenderStun: Number(defender.stun.toFixed(2)),
+      defenderDownPose: Number(defender.downPose.toFixed(2)),
+      defenderDash: Number(defender.dash.toFixed(2)),
+    });
+  }
+
+  function applyRemoteHit(payload) {
+    if (!isOnlineMatch() || payload.defenderRole !== net.role) return;
+    const fighter = localFighter();
+    const nextHp = clamp(Number(payload.defenderHp) || 0, 0, 100);
+    const amount = Math.max(1, Number(payload.amount) || 1);
+    if (nextHp < fighter.hp) addDamageText(fighter.x, fighter.y - fighter.height - 8, Math.min(amount, Math.round(fighter.hp - nextHp)));
+    fighter.hp = Math.min(fighter.hp, nextHp);
+    fighter.x = clamp(Number(payload.defenderX) || fighter.x, ring.left + fighter.width / 2, ring.right - fighter.width / 2);
+    fighter.y = clamp(Number(payload.defenderY) || fighter.y, lane.top, lane.bottom);
+    fighter.vx = Number(payload.defenderVx) || fighter.vx;
+    fighter.vy = Number(payload.defenderVy) || fighter.vy;
+    fighter.stun = Math.max(fighter.stun, Number(payload.defenderStun) || 0);
+    fighter.downPose = Math.max(fighter.downPose, Number(payload.defenderDownPose) || 0);
+    fighter.dash = Math.max(fighter.dash, Number(payload.defenderDash) || 0);
+    fighter.invuln = Math.max(fighter.invuln, 0.08);
+    game.shake = Math.max(game.shake, 0.13);
+    checkHp();
   }
 
   function damageRaw(f, amount) {
