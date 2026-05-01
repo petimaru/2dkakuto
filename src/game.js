@@ -97,6 +97,15 @@
     winner: null,
   };
 
+  const audio = {
+    ctx: null,
+    master: null,
+    enabled: false,
+    musicMode: "",
+    musicTimer: null,
+    musicStep: 0,
+  };
+
   const net = {
     peer: null,
     channel: null,
@@ -163,6 +172,125 @@
     const img = new Image();
     img.src = src;
     return img;
+  }
+
+  function initAudio() {
+    if (audio.ctx) return;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    audio.ctx = new AudioContextClass();
+    audio.master = audio.ctx.createGain();
+    audio.master.gain.value = 0.18;
+    audio.master.connect(audio.ctx.destination);
+  }
+
+  function unlockAudio() {
+    initAudio();
+    if (!audio.ctx) return;
+    audio.ctx.resume();
+    if (audio.enabled) return;
+    audio.enabled = true;
+    syncMusic();
+  }
+
+  function playTone(frequency, duration, options = {}) {
+    if (!audio.enabled || !audio.ctx) return;
+    const now = audio.ctx.currentTime;
+    const osc = audio.ctx.createOscillator();
+    const gain = audio.ctx.createGain();
+    osc.type = options.type || "square";
+    osc.frequency.setValueAtTime(frequency, now);
+    if (options.endFrequency) osc.frequency.exponentialRampToValueAtTime(options.endFrequency, now + duration);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(options.volume || 0.18, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    osc.connect(gain);
+    gain.connect(audio.master);
+    osc.start(now);
+    osc.stop(now + duration + 0.02);
+  }
+
+  function playNoise(duration, options = {}) {
+    if (!audio.enabled || !audio.ctx) return;
+    const now = audio.ctx.currentTime;
+    const buffer = audio.ctx.createBuffer(1, Math.max(1, audio.ctx.sampleRate * duration), audio.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i += 1) data[i] = Math.random() * 2 - 1;
+    const source = audio.ctx.createBufferSource();
+    const gain = audio.ctx.createGain();
+    const filter = audio.ctx.createBiquadFilter();
+    source.buffer = buffer;
+    filter.type = options.filter || "lowpass";
+    filter.frequency.value = options.frequency || 900;
+    gain.gain.setValueAtTime(options.volume || 0.12, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(audio.master);
+    source.start(now);
+  }
+
+  function playSound(name) {
+    if (!audio.enabled) return;
+    if (name === "ui") return playTone(880, 0.07, { volume: 0.08 });
+    if (name === "ready") return playTone(660, 0.08, { endFrequency: 990, volume: 0.1 });
+    if (name === "start") return playTone(330, 0.16, { endFrequency: 880, volume: 0.14 });
+    if (name === "strike") {
+      playTone(120, 0.05, { endFrequency: 70, volume: 0.16 });
+      return playNoise(0.08, { frequency: 650, volume: 0.09 });
+    }
+    if (name === "block") return playTone(180, 0.07, { type: "triangle", volume: 0.11 });
+    if (name === "grab") return playTone(150, 0.1, { endFrequency: 95, volume: 0.12 });
+    if (name === "throw") {
+      playTone(95, 0.18, { endFrequency: 55, volume: 0.18 });
+      return playNoise(0.14, { frequency: 420, volume: 0.11 });
+    }
+    if (name === "hold") return playTone(220, 0.18, { type: "sawtooth", volume: 0.1 });
+    if (name === "rope") return playTone(520, 0.09, { endFrequency: 260, volume: 0.1 });
+    if (name === "ko") {
+      playTone(240, 0.34, { endFrequency: 60, type: "sawtooth", volume: 0.17 });
+      return playNoise(0.22, { frequency: 300, volume: 0.08 });
+    }
+    if (name === "result") {
+      playTone(523, 0.12, { volume: 0.09 });
+      setTimeout(() => playTone(659, 0.12, { volume: 0.09 }), 120);
+      return setTimeout(() => playTone(784, 0.22, { volume: 0.1 }), 240);
+    }
+  }
+
+  function startMusic(mode) {
+    if (!audio.enabled || audio.musicMode === mode) return;
+    stopMusic();
+    audio.musicMode = mode;
+    audio.musicStep = 0;
+    const patterns = {
+      menu: [196, 247, 294, 247],
+      match: [110, 147, 165, 196, 165, 147, 131, 147],
+      result: [262, 330, 392, 523],
+    };
+    const interval = mode === "match" ? 180 : 360;
+    audio.musicTimer = setInterval(() => {
+      const pattern = patterns[mode] || patterns.menu;
+      const note = pattern[audio.musicStep % pattern.length];
+      playTone(note, mode === "match" ? 0.08 : 0.14, {
+        type: mode === "match" ? "square" : "triangle",
+        volume: mode === "match" ? 0.035 : 0.025,
+      });
+      audio.musicStep += 1;
+    }, interval);
+  }
+
+  function stopMusic() {
+    if (audio.musicTimer) clearInterval(audio.musicTimer);
+    audio.musicTimer = null;
+    audio.musicMode = "";
+  }
+
+  function syncMusic() {
+    if (!audio.enabled) return;
+    if (game.state === "play" || game.state === "ko") startMusic("match");
+    else if (game.state === "result") startMusic("result");
+    else startMusic("menu");
   }
 
   function getSignalingUrl() {
@@ -545,6 +673,7 @@
 
   function showModeStep() {
     stopNetwork();
+    syncMusic();
     game.matchMode = "cpu";
     game.roomCode = "";
     game.remoteCharacter = "";
@@ -592,6 +721,7 @@
     net.remoteState = null;
     menu.hidden = true;
     result.hidden = true;
+    syncMusic();
   }
 
   function resetOnlineReady() {
@@ -626,6 +756,7 @@
     }
     game.message = net.remoteReady ? "BOTH READY" : "WAITING RIVAL";
     menuMatchup.textContent = game.message;
+    playSound("ready");
     sendPeerMessage("ready", { character: game.playerCharacter });
     maybeStartOnlineMatch();
   }
@@ -645,6 +776,7 @@
     restartButton.disabled = true;
     game.message = "MATCH START";
     menuMatchup.textContent = "MATCH START";
+    playSound("start");
     net.startTimer = setTimeout(() => {
       net.startTimer = null;
       resetOnlineReady();
@@ -663,6 +795,8 @@
       restartButton.textContent = "REMATCH";
     }
     result.hidden = false;
+    playSound("result");
+    syncMusic();
   }
 
   function startKoSequence(winner, loser, reason, options = {}) {
@@ -694,10 +828,14 @@
     game.message = "KO!";
     game.messageTimer = 2.2;
     result.hidden = true;
+    playSound("ko");
+    syncMusic();
   }
 
   modeButtons.forEach((button) => {
     button.addEventListener("click", () => {
+      unlockAudio();
+      playSound("ui");
       game.matchMode = button.dataset.mode;
       modeButtons.forEach((b) => b.classList.toggle("is-active", b === button));
       if (game.matchMode === "cpu") showCharacterStep();
@@ -706,6 +844,8 @@
   });
 
   hostContinueButton.addEventListener("click", async () => {
+    unlockAudio();
+    playSound("ui");
     if (game.roomCode) {
       showCharacterStep();
       return;
@@ -727,6 +867,8 @@
   });
 
   joinContinueButton.addEventListener("click", async () => {
+    unlockAudio();
+    playSound("ui");
     const code = roomCodeInput.value.trim();
     if (code.length !== 8) {
       game.message = "ENTER 8 DIGITS";
@@ -752,8 +894,13 @@
 
   connectionBackButton.addEventListener("click", showModeStep);
 
+  window.addEventListener("pointerdown", unlockAudio, { once: true });
+  window.addEventListener("keydown", unlockAudio, { once: true });
+
   characterButtons.forEach((button) => {
     button.addEventListener("click", () => {
+      unlockAudio();
+      playSound("ui");
       game.playerCharacter = button.dataset.character;
       characterButtons.forEach((b) => b.classList.toggle("is-active", b === button));
       net.localCharacterSent = false;
@@ -768,6 +915,8 @@
 
   difficultyButtons.forEach((button) => {
     button.addEventListener("click", () => {
+      unlockAudio();
+      playSound("ui");
       game.difficulty = button.dataset.difficulty;
       difficultyButtons.forEach((b) => b.classList.toggle("is-active", b === button));
       game.message = `${difficultySettings[game.difficulty].label.toUpperCase()} READY`;
@@ -775,20 +924,22 @@
   });
 
   startButton.addEventListener("click", () => {
+    unlockAudio();
     if (isOnlineMatch()) readyOnlineMatch();
     else resetMatch();
   });
   restartButton.addEventListener("click", () => {
+    unlockAudio();
     if (isOnlineMatch()) {
       readyOnlineMatch("restart");
       return;
     }
     result.hidden = true;
     menu.hidden = false;
+    game.state = "menu";
     showModeStep();
     difficultyStep.hidden = true;
     characterButtons.forEach((button) => button.classList.remove("is-active"));
-    game.state = "menu";
   });
 
   const input = {
@@ -1453,6 +1604,7 @@
     };
     game.message = "CLASH!";
     game.messageTimer = 1.25;
+    playSound("grab");
   }
 
   function makeGrabContestCounts() {
@@ -1566,6 +1718,7 @@
       defender.downPose = anim.kind === "headbutt" ? 0 : 2;
       damageRaw(defender, move.damage);
       maybeSendHitResult(anim.attacker, defender, move.damage);
+      playSound("throw");
       if (anim.kind === "headbutt") {
         defender.vx = dir * 210;
         defender.vy = -34;
@@ -1602,6 +1755,7 @@
     attacker.attackName = "ROPE THROW";
     game.message = "ROPE THROW";
     game.messageTimer = 0.9;
+    playSound("rope");
   }
 
   function startSubmission(attacker, defender) {
@@ -1621,6 +1775,7 @@
     defender.vy = 0;
     game.message = "FIGURE FOUR";
     game.messageTimer = 1.2;
+    playSound("hold");
   }
 
   function updateSubmission(dt) {
@@ -1655,6 +1810,7 @@
       game.message = "ROPE BREAK";
       game.messageTimer = 1;
       game.submission = null;
+      playSound("rope");
       return;
     }
 
@@ -1687,6 +1843,9 @@
       final *= 0.28;
       stun *= 0.45;
       game.message = "BLOCK";
+      playSound("block");
+    } else {
+      playSound("strike");
     }
     damageRaw(defender, final);
     if (defender.dash <= 0) {
