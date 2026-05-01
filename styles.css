@@ -53,6 +53,25 @@ button {
   pointer-events: none;
 }
 
+.sound-button {
+  position: absolute;
+  top: calc(var(--safe-top) + 10px);
+  right: max(10px, calc((100vw - min(100vw, calc(100dvh * 9 / 16))) / 2 + 10px));
+  z-index: 4;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 2px solid #eef6ff;
+  background: rgba(8, 11, 18, 0.82);
+  color: #fff;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.sound-button.is-muted {
+  border-color: #777;
+  color: #aaa;
+}
+
 .touch-zone {
   position: absolute;
   bottom: 0;

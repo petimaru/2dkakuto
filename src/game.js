@@ -18,6 +18,7 @@
   const resultReason = document.getElementById("resultReason");
   const startButton = document.getElementById("startButton");
   const restartButton = document.getElementById("restartButton");
+  const soundButton = document.getElementById("soundButton");
   const hostContinueButton = document.getElementById("hostContinueButton");
   const joinContinueButton = document.getElementById("joinContinueButton");
   const connectionBackButton = document.getElementById("connectionBackButton");
@@ -101,6 +102,7 @@
     ctx: null,
     master: null,
     enabled: false,
+    muted: localStorage.getItem("ppwMuted") === "1",
     musicMode: "",
     musicTimer: null,
     musicStep: 0,
@@ -188,13 +190,14 @@
     initAudio();
     if (!audio.ctx) return;
     audio.ctx.resume();
+    if (audio.muted) return;
     if (audio.enabled) return;
     audio.enabled = true;
     syncMusic();
   }
 
   function playTone(frequency, duration, options = {}) {
-    if (!audio.enabled || !audio.ctx) return;
+    if (audio.muted || !audio.enabled || !audio.ctx) return;
     const now = audio.ctx.currentTime;
     const osc = audio.ctx.createOscillator();
     const gain = audio.ctx.createGain();
@@ -211,7 +214,7 @@
   }
 
   function playNoise(duration, options = {}) {
-    if (!audio.enabled || !audio.ctx) return;
+    if (audio.muted || !audio.enabled || !audio.ctx) return;
     const now = audio.ctx.currentTime;
     const buffer = audio.ctx.createBuffer(1, Math.max(1, audio.ctx.sampleRate * duration), audio.ctx.sampleRate);
     const data = buffer.getChannelData(0);
@@ -231,7 +234,7 @@
   }
 
   function playSound(name) {
-    if (!audio.enabled) return;
+    if (audio.muted || !audio.enabled) return;
     if (name === "ui") return playTone(880, 0.07, { volume: 0.08 });
     if (name === "ready") return playTone(660, 0.08, { endFrequency: 990, volume: 0.1 });
     if (name === "start") return playTone(330, 0.16, { endFrequency: 880, volume: 0.14 });
@@ -259,7 +262,7 @@
   }
 
   function startMusic(mode) {
-    if (!audio.enabled || audio.musicMode === mode) return;
+    if (audio.muted || !audio.enabled || audio.musicMode === mode) return;
     stopMusic();
     audio.musicMode = mode;
     audio.musicStep = 0;
@@ -287,10 +290,33 @@
   }
 
   function syncMusic() {
+    updateSoundButton();
+    if (audio.muted) {
+      stopMusic();
+      return;
+    }
     if (!audio.enabled) return;
     if (game.state === "play" || game.state === "ko") startMusic("match");
     else if (game.state === "result") startMusic("result");
     else startMusic("menu");
+  }
+
+  function updateSoundButton() {
+    soundButton.textContent = audio.muted ? "SOUND OFF" : "SOUND ON";
+    soundButton.classList.toggle("is-muted", audio.muted);
+    soundButton.setAttribute("aria-pressed", String(!audio.muted));
+  }
+
+  function toggleMute() {
+    audio.muted = !audio.muted;
+    localStorage.setItem("ppwMuted", audio.muted ? "1" : "0");
+    if (audio.muted) stopMusic();
+    else {
+      unlockAudio();
+      playSound("ui");
+      syncMusic();
+    }
+    updateSoundButton();
   }
 
   function getSignalingUrl() {
@@ -893,6 +919,10 @@
   });
 
   connectionBackButton.addEventListener("click", showModeStep);
+  soundButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleMute();
+  });
 
   window.addEventListener("pointerdown", unlockAudio, { once: true });
   window.addEventListener("keydown", unlockAudio, { once: true });
@@ -2792,5 +2822,6 @@
   }
 
   render();
+  updateSoundButton();
   requestAnimationFrame(loop);
 })();
