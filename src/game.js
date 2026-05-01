@@ -1703,7 +1703,8 @@
   }
 
   function maybeSendKoResult(winner, loser, reason, options) {
-    if (!isOnlineMatch() || options.remote || winner !== localFighter() || !net.connected) return;
+    if (!isOnlineMatch() || options.remote || !net.connected) return;
+    if (winner !== localFighter() && loser !== localFighter()) return;
     sendPeerMessage("ko", {
       frame: game.frame,
       winnerRole: fighterRole(winner),
