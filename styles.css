@@ -55,7 +55,7 @@ button {
 
 .sound-button {
   position: absolute;
-  top: calc(var(--safe-top) + 10px);
+  top: calc(var(--safe-top) + min(14vh, 112px));
   right: max(10px, calc((100vw - min(100vw, calc(100dvh * 9 / 16))) / 2 + 10px));
   z-index: 4;
   min-height: 34px;
