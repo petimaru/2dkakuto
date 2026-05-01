@@ -213,6 +213,21 @@
     osc.stop(now + duration + 0.02);
   }
 
+  function playBurst(frequency, duration, options = {}) {
+    playTone(frequency, duration, {
+      type: options.type || "sawtooth",
+      endFrequency: options.endFrequency || Math.max(40, frequency * 0.45),
+      volume: options.volume || 0.16,
+    });
+    if (options.octave !== false) {
+      playTone(frequency * 0.5, duration * 1.15, {
+        type: "triangle",
+        endFrequency: Math.max(35, frequency * 0.24),
+        volume: (options.volume || 0.16) * 0.55,
+      });
+    }
+  }
+
   function playNoise(duration, options = {}) {
     if (audio.muted || !audio.enabled || !audio.ctx) return;
     const now = audio.ctx.currentTime;
@@ -237,22 +252,41 @@
     if (audio.muted || !audio.enabled) return;
     if (name === "ui") return playTone(880, 0.07, { volume: 0.08 });
     if (name === "ready") return playTone(660, 0.08, { endFrequency: 990, volume: 0.1 });
-    if (name === "start") return playTone(330, 0.16, { endFrequency: 880, volume: 0.14 });
+    if (name === "start") {
+      playTone(220, 0.08, { endFrequency: 440, volume: 0.1 });
+      return setTimeout(() => playTone(330, 0.16, { endFrequency: 990, volume: 0.14 }), 70);
+    }
     if (name === "strike") {
-      playTone(120, 0.05, { endFrequency: 70, volume: 0.16 });
-      return playNoise(0.08, { frequency: 650, volume: 0.09 });
+      playBurst(150, 0.09, { endFrequency: 48, volume: 0.18 });
+      playNoise(0.1, { frequency: 760, volume: 0.12 });
+      return setTimeout(() => playNoise(0.04, { frequency: 1400, volume: 0.045 }), 28);
     }
-    if (name === "block") return playTone(180, 0.07, { type: "triangle", volume: 0.11 });
-    if (name === "grab") return playTone(150, 0.1, { endFrequency: 95, volume: 0.12 });
+    if (name === "block") {
+      playTone(210, 0.05, { type: "triangle", volume: 0.12 });
+      return playNoise(0.05, { filter: "bandpass", frequency: 1200, volume: 0.045 });
+    }
+    if (name === "grab") {
+      playBurst(120, 0.12, { endFrequency: 76, volume: 0.12, octave: false });
+      return playNoise(0.05, { frequency: 500, volume: 0.04 });
+    }
     if (name === "throw") {
-      playTone(95, 0.18, { endFrequency: 55, volume: 0.18 });
-      return playNoise(0.14, { frequency: 420, volume: 0.11 });
+      playBurst(90, 0.22, { endFrequency: 38, volume: 0.22 });
+      playNoise(0.16, { frequency: 360, volume: 0.14 });
+      return setTimeout(() => playTone(55, 0.16, { type: "triangle", endFrequency: 38, volume: 0.12 }), 35);
     }
-    if (name === "hold") return playTone(220, 0.18, { type: "sawtooth", volume: 0.1 });
-    if (name === "rope") return playTone(520, 0.09, { endFrequency: 260, volume: 0.1 });
+    if (name === "hold") {
+      playTone(180, 0.16, { type: "sawtooth", endFrequency: 120, volume: 0.11 });
+      return setTimeout(() => playTone(260, 0.09, { type: "square", endFrequency: 180, volume: 0.07 }), 80);
+    }
+    if (name === "rope") {
+      playTone(620, 0.06, { endFrequency: 280, volume: 0.1 });
+      return setTimeout(() => playTone(390, 0.08, { endFrequency: 180, volume: 0.07 }), 45);
+    }
     if (name === "ko") {
-      playTone(240, 0.34, { endFrequency: 60, type: "sawtooth", volume: 0.17 });
-      return playNoise(0.22, { frequency: 300, volume: 0.08 });
+      playBurst(220, 0.42, { endFrequency: 42, volume: 0.2 });
+      playNoise(0.22, { frequency: 300, volume: 0.1 });
+      setTimeout(() => playTone(98, 0.18, { type: "square", endFrequency: 49, volume: 0.14 }), 140);
+      return setTimeout(() => playTone(392, 0.12, { type: "triangle", volume: 0.08 }), 290);
     }
     if (name === "result") {
       playTone(523, 0.12, { volume: 0.09 });
@@ -271,7 +305,7 @@
       match: [110, 147, 165, 196, 165, 147, 131, 147],
       result: [262, 330, 392, 523],
     };
-    const interval = mode === "match" ? 180 : 360;
+    const interval = mode === "match" ? 170 : 360;
     audio.musicTimer = setInterval(() => {
       const pattern = patterns[mode] || patterns.menu;
       const note = pattern[audio.musicStep % pattern.length];
@@ -279,6 +313,9 @@
         type: mode === "match" ? "square" : "triangle",
         volume: mode === "match" ? 0.035 : 0.025,
       });
+      if (mode === "match" && audio.musicStep % 4 === 0) {
+        playTone(55, 0.06, { type: "triangle", endFrequency: 45, volume: 0.025 });
+      }
       audio.musicStep += 1;
     }, interval);
   }
