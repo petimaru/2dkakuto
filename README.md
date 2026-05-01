@@ -70,6 +70,24 @@ http://localhost:8000/?signal=https://your-signaling-server.example.com
 npm start
 ```
 
+## Renderの待ち合わせサーバーでiPhone接続する方法
+
+Renderに公開した待ち合わせサーバーを使う場合は、MacとiPhoneの両方で同じ `signal` URLを指定します。
+
+Macのブラウザでは次を開きます。
+
+```text
+http://localhost:8000/?signal=https://pixel-pro-wrestling-signal.onrender.com
+```
+
+iPhoneのSafariでは、`localhost` ではなくMacのWi-Fi IPを使います。
+
+```text
+http://192.168.0.49:8000/?signal=https://pixel-pro-wrestling-signal.onrender.com
+```
+
+`localhost` は「今使っている端末自身」という意味です。iPhoneで `localhost` を開くとMacではなくiPhone自身を見に行くため、MacのIPアドレスを指定します。
+
 ## 操作
 
 - 画面左側ドラッグ: リング内を上下左右に移動
