@@ -352,6 +352,14 @@
       applyRemoteResult(message.payload);
       return;
     }
+    if (message.type === "grab" && message.payload) {
+      applyRemoteGrab(message.payload);
+      return;
+    }
+    if (message.type === "grabAction" && message.payload) {
+      applyRemoteGrabAction(message.payload);
+      return;
+    }
     if (message.type !== "input" || !message.payload) return;
     const frameInput = copyFrameInput(message.payload);
     net.remoteFrameInputs.set(frameInput.frame, frameInput);
@@ -1414,6 +1422,7 @@
       defender.grabbed = true;
       attacker.attackName = "GRAB";
       startGrabContest(attacker, defender);
+      maybeSendGrabResult(attacker, defender);
     } else {
       game.message = "MISS GRAB";
       game.messageTimer = 0.5;
@@ -1479,7 +1488,8 @@
     }[action] || "";
   }
 
-  function executeGrabAction(attacker, defender, action) {
+  function executeGrabAction(attacker, defender, action, options = {}) {
+    maybeSendGrabAction(attacker, defender, action, options);
     if (action === "tap") return ropeThrow(attacker, defender);
     if (action === "up") return performThrow(attacker, defender, "suplex");
     if (action === "down") return startSubmission(attacker, defender);
@@ -1732,6 +1742,29 @@
     });
   }
 
+  function maybeSendGrabResult(attacker, defender) {
+    if (!isOnlineMatch() || attacker !== localFighter() || !net.connected) return;
+    sendPeerMessage("grab", {
+      frame: game.frame,
+      attackerRole: fighterRole(attacker),
+      defenderRole: fighterRole(defender),
+      attackerX: Math.round(attacker.x),
+      attackerY: Math.round(attacker.y),
+      defenderX: Math.round(defender.x),
+      defenderY: Math.round(defender.y),
+    });
+  }
+
+  function maybeSendGrabAction(attacker, defender, action, options = {}) {
+    if (!isOnlineMatch() || options.remote || attacker !== localFighter() || !net.connected) return;
+    sendPeerMessage("grabAction", {
+      frame: game.frame,
+      attackerRole: fighterRole(attacker),
+      defenderRole: fighterRole(defender),
+      action,
+    });
+  }
+
   function applyRemoteHit(payload) {
     if (!isOnlineMatch() || payload.defenderRole !== net.role) return;
     const fighter = localFighter();
@@ -1769,6 +1802,28 @@
     if (!isOnlineMatch()) return;
     const winner = fighterForRole(payload.winnerRole);
     endMatch(winner, String(payload.reason || "MATCH END"), { remote: true });
+  }
+
+  function applyRemoteGrab(payload) {
+    if (!isOnlineMatch() || game.grab || game.submission || game.throwAnim) return;
+    const attacker = fighterForRole(payload.attackerRole);
+    const defender = fighterForRole(payload.defenderRole);
+    attacker.x = clamp(Number(payload.attackerX) || attacker.x, ring.left + attacker.width / 2, ring.right - attacker.width / 2);
+    attacker.y = clamp(Number(payload.attackerY) || attacker.y, lane.top, lane.bottom);
+    defender.x = clamp(Number(payload.defenderX) || defender.x, ring.left + defender.width / 2, ring.right - defender.width / 2);
+    defender.y = clamp(Number(payload.defenderY) || defender.y, lane.top, lane.bottom);
+    game.grab = { a: attacker, b: defender, timer: 2.6 };
+    attacker.grabbed = true;
+    defender.grabbed = true;
+    attacker.attackName = "GRAB";
+    startGrabContest(attacker, defender);
+  }
+
+  function applyRemoteGrabAction(payload) {
+    if (!isOnlineMatch() || !game.grab) return;
+    const attacker = fighterForRole(payload.attackerRole);
+    const defender = fighterForRole(payload.defenderRole);
+    executeGrabAction(attacker, defender, String(payload.action || ""), { remote: true });
   }
 
   function damageRaw(f, amount) {
