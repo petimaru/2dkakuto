@@ -329,6 +329,14 @@
         y: Number(message.payload.y) || floorY,
         vx: Number(message.payload.vx) || 0,
         vy: Number(message.payload.vy) || 0,
+        hp: Number(message.payload.hp) || 0,
+        sp: Number(message.payload.sp) || 0,
+        guard: Number(message.payload.guard) || 0,
+        stun: Number(message.payload.stun) || 0,
+        tired: Number(message.payload.tired) || 0,
+        attack: Number(message.payload.attack) || 0,
+        downPose: Number(message.payload.downPose) || 0,
+        dash: Number(message.payload.dash) || 0,
       };
       return;
     }
@@ -905,6 +913,14 @@
       y: Math.round(fighter.y),
       vx: Math.round(fighter.vx),
       vy: Math.round(fighter.vy),
+      hp: Math.round(fighter.hp),
+      sp: Math.round(fighter.sp),
+      guard: Number(fighter.guard.toFixed(2)),
+      stun: Number(fighter.stun.toFixed(2)),
+      tired: Number(fighter.tired.toFixed(2)),
+      attack: Number(fighter.attack.toFixed(2)),
+      downPose: Number(fighter.downPose.toFixed(2)),
+      dash: Number(fighter.dash.toFixed(2)),
     });
   }
 
@@ -953,6 +969,19 @@
     fighter.y = clamp(fighter.y + dy * blend, lane.top, lane.bottom);
     fighter.vx += (state.vx - fighter.vx) * blend;
     fighter.vy += (state.vy - fighter.vy) * blend;
+  }
+
+  function syncRemoteFighterState(fighter) {
+    const state = net.remoteState;
+    if (!state || game.grab || game.submission || game.throwAnim || game.ko) return;
+    fighter.hp = clamp(state.hp, 0, 100);
+    fighter.sp = clamp(state.sp, 0, 100);
+    fighter.guard = clamp(state.guard, 0, 2);
+    fighter.stun = clamp(state.stun, 0, 3);
+    fighter.tired = clamp(state.tired, 0, tiredSeconds);
+    fighter.attack = clamp(state.attack, 0, 2);
+    fighter.downPose = clamp(state.downPose, 0, 3);
+    fighter.dash = clamp(state.dash, 0, dashSeconds);
   }
 
   function applyMashInput(fighter) {
@@ -1049,6 +1078,7 @@
       else updateAi(dt);
     }
     if (isOnlineMatch()) correctRemoteFighter(remote, dt);
+    if (isOnlineMatch()) syncRemoteFighterState(remote);
 
     p1.sp = clamp(p1.sp + dt * staminaRecovery, 0, 100);
     p2.sp = clamp(p2.sp + dt * staminaRecovery, 0, 100);
