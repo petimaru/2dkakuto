@@ -348,6 +348,10 @@
       applyRemoteKo(message.payload);
       return;
     }
+    if (message.type === "result" && message.payload) {
+      applyRemoteResult(message.payload);
+      return;
+    }
     if (message.type !== "input" || !message.payload) return;
     const frameInput = copyFrameInput(message.payload);
     net.remoteFrameInputs.set(frameInput.frame, frameInput);
@@ -640,7 +644,8 @@
     }, Math.max(0, delayMs));
   }
 
-  function endMatch(winner, reason) {
+  function endMatch(winner, reason, options = {}) {
+    maybeSendMatchResult(winner, reason, options);
     game.state = "result";
     game.winner = winner;
     resultTitle.textContent = `${winner.name} WIN`;
@@ -1718,6 +1723,15 @@
     });
   }
 
+  function maybeSendMatchResult(winner, reason, options = {}) {
+    if (!isOnlineMatch() || options.remote || !net.connected) return;
+    sendPeerMessage("result", {
+      frame: game.frame,
+      winnerRole: fighterRole(winner),
+      reason,
+    });
+  }
+
   function applyRemoteHit(payload) {
     if (!isOnlineMatch() || payload.defenderRole !== net.role) return;
     const fighter = localFighter();
@@ -1749,6 +1763,12 @@
       skipFly: Boolean(payload.skipFly),
       remote: true,
     });
+  }
+
+  function applyRemoteResult(payload) {
+    if (!isOnlineMatch()) return;
+    const winner = fighterForRole(payload.winnerRole);
+    endMatch(winner, String(payload.reason || "MATCH END"), { remote: true });
   }
 
   function damageRaw(f, amount) {
