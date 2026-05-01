@@ -48,6 +48,28 @@ http://localhost:8787/
 
 このサーバーは8桁コードの部屋と接続メッセージだけを一時的に預かります。古い部屋は約10分で自動削除されます。
 
+## 遠隔対戦サーバーを指定する方法
+
+通常はローカルの待ち合わせサーバーを使います。
+
+```text
+http://localhost:8000/
+```
+
+遠隔公開した待ち合わせサーバーを使う場合は、ゲームURLに `?signal=` を付けます。
+
+```text
+http://localhost:8000/?signal=https://your-signaling-server.example.com
+```
+
+`https://your-signaling-server.example.com` の部分は、`server.js` を配置した実際のURLに置き換えてください。
+
+遠隔公開サービスでは、Node.jsアプリとして次のコマンドを使います。
+
+```bash
+npm start
+```
+
 ## 操作
 
 - 画面左側ドラッグ: リング内を上下左右に移動

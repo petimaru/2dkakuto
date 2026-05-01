@@ -39,7 +39,9 @@
   const staminaRecovery = 10;
   const tiredSeconds = 2.4;
   const matchSeconds = 99;
-  const signalingUrl = "http://localhost:8787";
+  const remoteInputDelayFrames = 4;
+  const defaultSignalingUrl = "http://localhost:8787";
+  const signalingUrl = getSignalingUrl();
   const playerColors = {
     p1: "#ff4040",
     p1Dark: "#6f131c",
@@ -103,6 +105,7 @@
     pendingCandidates: [],
     lastRemoteFrame: -1,
     remoteFrameInputs: new Map(),
+    lastRemoteInput: makeFrameInput(),
     localCharacterSent: false,
     localReady: false,
     remoteReady: false,
@@ -156,6 +159,18 @@
     const img = new Image();
     img.src = src;
     return img;
+  }
+
+  function getSignalingUrl() {
+    const signal = new URLSearchParams(window.location.search).get("signal");
+    if (!signal) return defaultSignalingUrl;
+    try {
+      const url = new URL(signal);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return defaultSignalingUrl;
+      return url.origin;
+    } catch (error) {
+      return defaultSignalingUrl;
+    }
   }
 
   function makeFighter(character, x, facing, player) {
@@ -265,6 +280,7 @@
     net.pendingCandidates = [];
     net.lastRemoteFrame = -1;
     net.remoteFrameInputs.clear();
+    net.lastRemoteInput = makeFrameInput();
     net.localCharacterSent = false;
     net.localReady = false;
     net.remoteReady = false;
@@ -521,6 +537,9 @@
     game.damageTexts = [];
     game.ko = null;
     game.winner = null;
+    net.lastRemoteFrame = -1;
+    net.remoteFrameInputs.clear();
+    net.lastRemoteInput = makeFrameInput();
     menu.hidden = true;
     result.hidden = true;
   }
@@ -532,9 +551,11 @@
     net.startTimer = null;
     startButton.disabled = false;
     startButton.textContent = isOnlineMatch() ? "READY" : "START";
+    restartButton.disabled = false;
+    restartButton.textContent = "RESTART";
   }
 
-  function readyOnlineMatch() {
+  function readyOnlineMatch(source = "start") {
     if (!net.connected) {
       game.message = "WAIT CONNECTION";
       menuMatchup.textContent = "WAIT CONNECTION";
@@ -546,8 +567,13 @@
       return;
     }
     net.localReady = true;
-    startButton.disabled = true;
-    startButton.textContent = "READY";
+    if (source === "restart") {
+      restartButton.disabled = true;
+      restartButton.textContent = "READY";
+    } else {
+      startButton.disabled = true;
+      startButton.textContent = "READY";
+    }
     game.message = net.remoteReady ? "BOTH READY" : "WAITING RIVAL";
     menuMatchup.textContent = game.message;
     sendPeerMessage("ready", { character: game.playerCharacter });
@@ -566,10 +592,12 @@
   function scheduleOnlineStart(delayMs) {
     if (net.startTimer) return;
     startButton.disabled = true;
+    restartButton.disabled = true;
     game.message = "MATCH START";
     menuMatchup.textContent = "MATCH START";
     net.startTimer = setTimeout(() => {
       net.startTimer = null;
+      resetOnlineReady();
       resetMatch();
     }, Math.max(0, delayMs));
   }
@@ -579,6 +607,10 @@
     game.winner = winner;
     resultTitle.textContent = `${winner.name} WIN`;
     resultReason.textContent = reason;
+    if (isOnlineMatch()) {
+      resetOnlineReady();
+      restartButton.textContent = "REMATCH";
+    }
     result.hidden = false;
   }
 
@@ -695,6 +727,10 @@
     else resetMatch();
   });
   restartButton.addEventListener("click", () => {
+    if (isOnlineMatch()) {
+      readyOnlineMatch("restart");
+      return;
+    }
     result.hidden = true;
     menu.hidden = false;
     showModeStep();
@@ -839,9 +875,20 @@
     sendPeerMessage("input", copyFrameInput(frameInput));
   }
 
-  function latestRemoteFrameInput() {
+  function remoteFrameInputForPlayback() {
     if (net.lastRemoteFrame < 0) return makeFrameInput();
-    return net.remoteFrameInputs.get(net.lastRemoteFrame) || makeFrameInput();
+    const targetFrame = Math.max(0, game.frame - remoteInputDelayFrames);
+    const frameInput = net.remoteFrameInputs.get(targetFrame);
+    if (frameInput) {
+      net.lastRemoteInput = copyFrameInput(frameInput);
+      return frameInput;
+    }
+    return {
+      frame: targetFrame,
+      moveX: net.lastRemoteInput.moveX,
+      moveY: net.lastRemoteInput.moveY,
+      actions: [],
+    };
   }
 
   function isOnlineMatch() {
@@ -911,7 +958,7 @@
     const remote = remoteFighter();
     applyFrameActions(local, localFrameInput);
     sendFrameInput(localFrameInput);
-    const remoteFrameInput = latestRemoteFrameInput();
+    const remoteFrameInput = remoteFrameInputForPlayback();
     if (isOnlineMatch()) applyFrameActions(remote, remoteFrameInput);
     resetFrameActions(localFrameInput);
     game.frame += 1;
@@ -2261,6 +2308,11 @@
     ctx.fillStyle = "rgba(0,0,0,0.38)";
     ctx.fillRect(16, 1118, 688, 42);
     pixelText("LEFT DRAG MOVE 8WAY / RIGHT TAP OR SWIPE", 34, 1132, 2, "#dce9ff");
+    if (isOnlineMatch()) {
+      const targetFrame = Math.max(0, game.frame - remoteInputDelayFrames);
+      const waitingFrames = Math.max(0, targetFrame - net.lastRemoteFrame);
+      pixelText(`NET +${remoteInputDelayFrames} BUF ${net.remoteFrameInputs.size} LAG ${waitingFrames}`, 34, 1088, 2, "#7be8ff");
+    }
   }
 
   function hpColor(hp) {
