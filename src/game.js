@@ -271,9 +271,9 @@
       return playNoise(0.05, { frequency: 500, volume: 0.04 });
     }
     if (name === "grabCharge") {
-      playTone(520, 0.28, { type: "sawtooth", endFrequency: 1380, volume: 0.08, octave: false });
-      setTimeout(() => playTone(780, 0.18, { type: "triangle", endFrequency: 1680, volume: 0.055, octave: false }), 70);
-      return setTimeout(() => playNoise(0.06, { filter: "bandpass", frequency: 1800, volume: 0.035 }), 160);
+      playTone(420, 1, { type: "sawtooth", endFrequency: 1800, volume: 0.055, octave: false });
+      playTone(630, 0.92, { type: "triangle", endFrequency: 2400, volume: 0.035, octave: false });
+      return setTimeout(() => playTone(1760, 0.08, { type: "square", endFrequency: 2200, volume: 0.055, octave: false }), 920);
     }
     if (name === "throw") {
       playBurst(90, 0.22, { endFrequency: 38, volume: 0.22 });
@@ -1738,7 +1738,7 @@
     game.message = "CLASH!";
     game.messageTimer = 1.25;
     playSound("grab");
-    setTimeout(() => playSound("grabCharge"), 50);
+    playSound("grabCharge");
   }
 
   function makeGrabContestCounts() {
