@@ -425,6 +425,21 @@
     menuMatchup.textContent = `${p1.name} vs ${p2.name}`;
   }
 
+  function setOnlineStatus(message) {
+    game.message = message;
+    menuMatchup.textContent = message;
+  }
+
+  function onlineReadyStatus(source = "start") {
+    if (net.localReady && net.remoteReady) {
+      return source === "restart" ? "REMATCH READY" : "BOTH READY";
+    }
+    if (net.localReady) return "WAITING RIVAL";
+    if (net.remoteReady) return source === "restart" ? "RIVAL REMATCH READY" : "RIVAL READY";
+    if (net.connected) return "CONNECTED";
+    return net.role === "host" ? "WAITING RIVAL" : "CONNECTING";
+  }
+
   function makeRoomCode() {
     return String(Math.floor(10000000 + Math.random() * 90000000));
   }
@@ -504,7 +519,8 @@
     }
     if (message.type === "ready") {
       net.remoteReady = true;
-      game.message = net.localReady ? "BOTH READY" : "RIVAL READY";
+      game.message = onlineReadyStatus(game.state === "result" ? "restart" : "start");
+      if (game.state !== "play") menuMatchup.textContent = game.message;
       game.messageTimer = 0.9;
       maybeStartOnlineMatch();
       return;
@@ -571,8 +587,7 @@
     net.channel = channel;
     channel.addEventListener("open", () => {
       net.connected = true;
-      menuMatchup.textContent = "CONNECTED";
-      game.message = "CONNECTED";
+      setOnlineStatus(onlineReadyStatus());
       sendLocalCharacter();
     });
     channel.addEventListener("close", () => {
@@ -668,8 +683,7 @@
     net.peer.addEventListener("connectionstatechange", () => {
       if (net.peer.connectionState === "connected") {
         net.connected = true;
-        menuMatchup.textContent = "CONNECTED";
-        game.message = "CONNECTED";
+        setOnlineStatus(onlineReadyStatus());
       }
       if (["failed", "closed", "disconnected"].includes(net.peer.connectionState)) {
         net.connected = false;
@@ -817,8 +831,7 @@
       startButton.disabled = true;
       startButton.textContent = "READY";
     }
-    game.message = net.remoteReady ? "BOTH READY" : "WAITING RIVAL";
-    menuMatchup.textContent = game.message;
+    setOnlineStatus(onlineReadyStatus(source));
     playSound("ready");
     sendPeerMessage("ready", { character: game.playerCharacter });
     maybeStartOnlineMatch();
@@ -856,6 +869,7 @@
     if (isOnlineMatch()) {
       resetOnlineReady();
       restartButton.textContent = "REMATCH";
+      setOnlineStatus("REMATCH READY");
     }
     result.hidden = false;
     playSound("result");
@@ -922,7 +936,7 @@
       roomCode.textContent = game.roomCode;
       hostContinueButton.textContent = "CONTINUE";
       hostContinueButton.disabled = false;
-      menuMatchup.textContent = "ROOM READY";
+      menuMatchup.textContent = "WAITING RIVAL";
       game.message = "SHARE ROOM CODE";
     } catch (error) {
       showConnectionError("SERVER NOT READY");
