@@ -94,6 +94,7 @@
     submission: null,
     throwAnim: null,
     damageTexts: [],
+    hypeTexts: [],
     ko: null,
     winner: null,
   };
@@ -790,6 +791,7 @@
     game.submission = null;
     game.throwAnim = null;
     game.damageTexts = [];
+    game.hypeTexts = [];
     game.ko = null;
     game.winner = null;
     net.lastRemoteFrame = -1;
@@ -1321,6 +1323,7 @@
     if (game.messageTimer > 0) game.messageTimer -= dt;
     if (game.shake > 0) game.shake -= dt;
     updateDamageTexts(dt);
+    updateHypeTexts(dt);
 
     if (game.submission) {
       updateSubmission(dt);
@@ -1366,6 +1369,7 @@
 
   function updateKoSequence(dt) {
     updateDamageTexts(dt);
+    updateHypeTexts(dt);
     if (game.messageTimer > 0) game.messageTimer -= dt;
     if (game.shake > 0) game.shake -= dt;
     if (!game.ko) return;
@@ -1408,6 +1412,13 @@
       text.vy += 34 * dt;
     });
     game.damageTexts = game.damageTexts.filter((text) => text.life > 0);
+  }
+
+  function updateHypeTexts(dt) {
+    game.hypeTexts.forEach((text) => {
+      text.life -= dt;
+    });
+    game.hypeTexts = game.hypeTexts.filter((text) => text.life > 0);
   }
 
   function updateMovement(f, directionX, directionY, dt) {
@@ -1775,6 +1786,7 @@
       ay: attacker.y,
       dir: attacker.facing,
     };
+    addHypeText(hypeMoveLabel(kind));
     game.message = move.label;
     game.messageTimer = duration;
   }
@@ -1856,7 +1868,8 @@
     defender.stun = 10;
     defender.vx = 0;
     defender.vy = 0;
-    game.message = "FIGURE FOUR";
+    addHypeText("FIGURE-FOUR-LEGLOCK");
+    game.message = "FIGURE-FOUR-LEGLOCK";
     game.messageTimer = 1.2;
     playSound("hold");
   }
@@ -2186,9 +2199,27 @@
       x,
       y,
       value: amount,
-      life: 0.85,
+      life: 0.95,
+      maxLife: 0.95,
       vy: -72,
     });
+  }
+
+  function addHypeText(label) {
+    if (!label) return;
+    game.hypeTexts.push({
+      label,
+      life: 1.25,
+      maxLife: 1.25,
+    });
+  }
+
+  function hypeMoveLabel(kind) {
+    return {
+      suplex: "BRAIN BUSTER!!",
+      backdrop: "BACK DROP!!",
+      headbutt: "HEAD BUTT!!",
+    }[kind] || "";
   }
 
   function countMash(f) {
@@ -2242,6 +2273,7 @@
     if (game.grabContest) ctx.restore();
     drawHud();
     drawDamageTexts();
+    drawHypeTexts();
     drawDebugHints();
     ctx.restore();
   }
@@ -2364,9 +2396,7 @@
     drawSp(28, 1180, p1);
     drawSp(414, 1180, p2);
 
-    if (game.messageTimer > 0 || game.state !== "play") {
-      pixelText(game.message, 180, 168, 3, "#fff");
-    }
+    if (game.messageTimer > 0 || game.state !== "play") drawTopMessage();
 
     if (game.submission) {
       const s = game.submission;
@@ -2778,12 +2808,51 @@
 
   function drawDamageTexts() {
     game.damageTexts.forEach((text) => {
-      const alpha = clamp(text.life / 0.85, 0, 1);
+      const alpha = clamp(text.life / text.maxLife, 0, 1);
+      const progress = 1 - alpha;
+      const value = String(text.value);
+      const scale = 3.5 + Math.min(1.4, text.value / 20) + Math.sin(progress * Math.PI) * 0.9;
+      const width = pixelTextWidth(value, scale);
       ctx.save();
       ctx.globalAlpha = alpha;
-      pixelText(String(text.value), text.x - 12, text.y, 3, "#ffef6b");
+      drawOutlinedPixelText(value, text.x - width / 2, text.y, scale, "#fff36a", "#130800", Math.max(2, scale * 0.8));
       ctx.restore();
     });
+  }
+
+  function drawHypeTexts() {
+    game.hypeTexts.forEach((text, index) => {
+      const alpha = clamp(text.life / text.maxLife, 0, 1);
+      const progress = 1 - alpha;
+      const scale = 4.2 + Math.sin(progress * Math.PI) * 0.8;
+      const width = pixelTextWidth(text.label, scale);
+      const x = (W - width) / 2;
+      const y = 414 + index * 64 - Math.sin(progress * Math.PI) * 18;
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = "rgba(0,0,0,0.78)";
+      ctx.fillRect(42, y - 28, W - 84, 78);
+      ctx.fillStyle = progress < 0.18 ? "#ffffff" : "#ff3030";
+      ctx.fillRect(42, y - 28, W - 84, 8);
+      ctx.fillStyle = "#ffe766";
+      ctx.fillRect(42, y + 42, W - 84, 8);
+      drawOutlinedPixelText(text.label, x, y, scale, "#ffe766", "#050505", Math.max(3, scale));
+      ctx.restore();
+    });
+  }
+
+  function drawTopMessage() {
+    const text = game.message;
+    const scale = text.length > 18 ? 2.3 : 3;
+    const width = pixelTextWidth(text, scale);
+    const x = (W - width) / 2;
+    const y = 164;
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,0.62)";
+    ctx.fillRect(Math.max(24, x - 18), y - 12, Math.min(W - 48, width + 36), 44);
+    drawOutlinedPixelText(text, x, y, scale, "#fff", "#000", 2);
+    ctx.restore();
   }
 
   function drawDebugHints() {
@@ -2848,6 +2917,28 @@
     ":": ["0", "1", "0", "1", "0"],
     " ": ["0", "0", "0", "0", "0"],
   };
+
+  function pixelTextWidth(text, scale) {
+    return String(text).toUpperCase().split("").reduce((width, char) => {
+      const glyph = font[char] || font[" "];
+      return width + (glyph[0].length + 1) * scale;
+    }, 0);
+  }
+
+  function drawOutlinedPixelText(text, x, y, scale, color, outline, thickness) {
+    const offsets = [
+      [-thickness, 0],
+      [thickness, 0],
+      [0, -thickness],
+      [0, thickness],
+      [-thickness, -thickness],
+      [thickness, -thickness],
+      [-thickness, thickness],
+      [thickness, thickness],
+    ];
+    offsets.forEach(([dx, dy]) => pixelText(text, x + dx, y + dy, scale, outline));
+    pixelText(text, x, y, scale, color);
+  }
 
   function pixelText(text, x, y, scale, color) {
     ctx.fillStyle = color;
