@@ -169,11 +169,17 @@ button {
   color: #ffe45c !important;
 }
 
+.connection-hint {
+  margin: -4px 0 14px !important;
+  color: #9fb5d8 !important;
+  font-size: 11px !important;
+}
+
 .room-code,
 .room-code-input {
   width: 100%;
-  min-height: 58px;
-  margin-bottom: 14px;
+  min-height: 56px;
+  margin-bottom: 12px;
   border: 2px solid #eef6ff;
   background: #080b12;
   color: #fff;

@@ -434,7 +434,7 @@
     if (net.localReady && net.remoteReady) {
       return source === "restart" ? "REMATCH READY" : "BOTH READY";
     }
-    if (net.localReady) return "WAITING RIVAL";
+    if (net.localReady) return source === "restart" ? "YOU REMATCH READY" : "YOU READY";
     if (net.remoteReady) return source === "restart" ? "RIVAL REMATCH READY" : "RIVAL READY";
     if (net.connected) return "CONNECTED";
     return net.role === "host" ? "WAITING RIVAL" : "CONNECTING";
@@ -958,6 +958,8 @@
     try {
       await findJoinRoom(code);
       game.roomCode = code;
+      menuMatchup.textContent = "CONNECTING";
+      game.message = "CONNECTING";
       await startJoinPeer();
       showCharacterStep();
     } catch (error) {
