@@ -270,6 +270,11 @@
       playBurst(120, 0.12, { endFrequency: 76, volume: 0.12, octave: false });
       return playNoise(0.05, { frequency: 500, volume: 0.04 });
     }
+    if (name === "grabCharge") {
+      playTone(520, 0.28, { type: "sawtooth", endFrequency: 1380, volume: 0.08, octave: false });
+      setTimeout(() => playTone(780, 0.18, { type: "triangle", endFrequency: 1680, volume: 0.055, octave: false }), 70);
+      return setTimeout(() => playNoise(0.06, { filter: "bandpass", frequency: 1800, volume: 0.035 }), 160);
+    }
     if (name === "throw") {
       playBurst(90, 0.22, { endFrequency: 38, volume: 0.22 });
       playNoise(0.16, { frequency: 360, volume: 0.14 });
@@ -1733,6 +1738,7 @@
     game.message = "CLASH!";
     game.messageTimer = 1.25;
     playSound("grab");
+    setTimeout(() => playSound("grabCharge"), 50);
   }
 
   function makeGrabContestCounts() {
