@@ -1073,32 +1073,6 @@
     localFrameInput.actions.push({ dx, dy, elapsed });
   }
 
-  function preventGameTouchDefault(event) {
-    if (event.cancelable) event.preventDefault();
-  }
-
-  function isMenuControl(target) {
-    return target.closest && target.closest("button, input, textarea, select");
-  }
-
-  function installSafariZoomGuard() {
-    let lastTouchEnd = 0;
-    document.addEventListener("touchend", (event) => {
-      const now = performance.now();
-      if (isMenuControl(event.target)) {
-        lastTouchEnd = now;
-        return;
-      }
-      if (now - lastTouchEnd < 320) event.preventDefault();
-      lastTouchEnd = now;
-    }, { passive: false });
-    document.addEventListener("touchmove", (event) => {
-      if (event.touches.length > 1) event.preventDefault();
-    }, { passive: false });
-    document.addEventListener("gesturestart", preventGameTouchDefault, { passive: false });
-    document.addEventListener("gesturechange", preventGameTouchDefault, { passive: false });
-  }
-
   function localPoint(event) {
     const rect = canvas.getBoundingClientRect();
     return {
@@ -1107,10 +1081,7 @@
     };
   }
 
-  installSafariZoomGuard();
-
   moveZone.addEventListener("pointerdown", (event) => {
-    preventGameTouchDefault(event);
     if (input.movePointer !== null) return;
     input.movePointer = event.pointerId;
     moveZone.setPointerCapture(event.pointerId);
@@ -1122,7 +1093,6 @@
   });
 
   moveZone.addEventListener("pointermove", (event) => {
-    preventGameTouchDefault(event);
     if (event.pointerId !== input.movePointer) return;
     const p = localPoint(event);
     input.moveX = clamp((p.x - input.moveStartX) / 70, -1, 1);
@@ -1130,7 +1100,6 @@
   });
 
   function clearMove(event) {
-    preventGameTouchDefault(event);
     if (event.pointerId !== input.movePointer) return;
     input.movePointer = null;
     input.moveX = 0;
@@ -1141,7 +1110,6 @@
   moveZone.addEventListener("pointercancel", clearMove);
 
   actionZone.addEventListener("pointerdown", (event) => {
-    preventGameTouchDefault(event);
     if (input.actionPointer !== null) return;
     input.actionPointer = event.pointerId;
     actionZone.setPointerCapture(event.pointerId);
@@ -1153,7 +1121,6 @@
   });
 
   actionZone.addEventListener("pointerup", (event) => {
-    preventGameTouchDefault(event);
     if (event.pointerId !== input.actionPointer) return;
     const p = localPoint(event);
     const dx = p.x - input.actionStartX;
@@ -1164,7 +1131,6 @@
   });
 
   actionZone.addEventListener("pointercancel", (event) => {
-    preventGameTouchDefault(event);
     if (event.pointerId !== input.actionPointer) return;
     input.actionPointer = null;
   });
