@@ -682,7 +682,12 @@
   function createPeer(role) {
     stopNetwork();
     net.role = role;
-    net.peer = new RTCPeerConnection({ iceServers: [] });
+    net.peer = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+      ],
+    });
     net.peer.addEventListener("icecandidate", (event) => {
       if (event.candidate) sendSignal("candidate", event.candidate);
     });
